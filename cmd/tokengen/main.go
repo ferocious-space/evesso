@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"time"
 
 	"go.uber.org/zap"
 
@@ -24,9 +23,9 @@ func main() {
 	if err != nil {
 		log.Fatal("unable to autoconfig:", err.Error())
 	}
-	ts := cfg.TokenSource(ctx, datastore.NewDataStore(datastore.NewMemoryAccountStore()), "Ferocious Bite", "publicData")
+	ts := cfg.TokenSource(ctx, datastore.NewDataStore(datastore.NewMemoryAccountStore()), "Ferocious Bite", []string{"publicData"})
 	if !ts.Valid() {
-		tk, err := tokengen.NewAuthenticator(cfg, "publicData").WebAuth("Ferocious Bite")
+		tk, err := tokengen.NewAuthenticator(cfg, []string{"publicData"}).WebAuth("Ferocious Bite")
 		if err != nil {
 			log.Fatal("webauth:", err.Error())
 		}
@@ -34,13 +33,5 @@ func main() {
 		if !ts.Valid() {
 			panic(tk)
 		}
-	}
-	for {
-		time.Sleep(1 * time.Minute)
-		tk, err := ts.Token()
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-		log.Println(tk)
 	}
 }

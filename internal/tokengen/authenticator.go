@@ -33,7 +33,7 @@ type authenticator struct {
 	pkce *pkce
 }
 
-func NewAuthenticator(acfg *auth.OAuthAutoConfig, scopes ...string) *authenticator {
+func NewAuthenticator(acfg *auth.OAuthAutoConfig, scopes []string) *authenticator {
 	return &authenticator{cfg: acfg.Oauth2Config(scopes...), acfg: acfg, pkce: nil}
 }
 

@@ -102,6 +102,6 @@ func (r *OAuthAutoConfig) ValidateToken(t jwt.Token, CharacterID int64, Owner st
 	return jwt.Validate(t, jwt.WithIssuer(CONST_ISSUER), jwt.WithAudience(r.cfg.Key), jwt.WithSubject(fmt.Sprintf("EVE:CHARACTER:%d", CharacterID)), jwt.WithClaimValue("owner", Owner))
 }
 
-func (r *OAuthAutoConfig) TokenSource(ctx context.Context, store *datastore.DataStore, CharacterName string, scopes ...string) *EVETokenSource {
+func (r *OAuthAutoConfig) TokenSource(ctx context.Context, store *datastore.DataStore, CharacterName string, scopes []string) *EVETokenSource {
 	return newEVETokenSource(ctx, r.Oauth2Config(scopes...), r, store, CharacterName)
 }
