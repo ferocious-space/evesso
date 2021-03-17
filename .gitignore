@@ -1,0 +1,4 @@
+/config.json
+/cmd/tokengen/config.json
+/cmd/tokengen/prv.key
+/cmd/tokengen/pk.pub
