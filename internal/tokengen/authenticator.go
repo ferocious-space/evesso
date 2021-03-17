@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,7 +17,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/lestrrat-go/jwx/jwt"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 
 	"github.com/ferocious-space/evesso/auth"
@@ -104,7 +104,10 @@ func (r *authenticator) WebAuth(CharacterName string) (*oauth2.Token, error) {
 
 	pks := r.acfg.AppConfig().PublicKey.Size()
 	if pks == 0 {
-		prv, pk := GenerateKeyPair(4096)
+		prv, pk, err := GenerateKeyPair(4096)
+		if err != nil {
+			return nil, err
+		}
 		prvBytes, _ := json.MarshalIndent(prv, "", " ")
 		pubBytes, _ := json.MarshalIndent(pk, "", " ")
 		r.acfg.AppConfig().PublicKey = pk
@@ -138,7 +141,14 @@ func (r *authenticator) WebAuth(CharacterName string) (*oauth2.Token, error) {
 			_ = encoder.Encode(err.Error())
 			return
 		}
-		data := base64.RawURLEncoding.EncodeToString(EncryptWithPublicKey([]byte(token.RefreshToken), r.acfg.AppConfig().PublicKey))
+		encToken, err := EncryptWithPublicKey([]byte(token.RefreshToken), r.acfg.AppConfig().PublicKey)
+		if err != nil {
+			writer.WriteHeader(http.StatusInternalServerError)
+			stopChannel <- struct{}{}
+			_ = encoder.Encode(err.Error())
+			return
+		}
+		data := base64.RawURLEncoding.EncodeToString(encToken)
 		writer.Header().Set("Content-Disposition", "attachment; filename=token.json")
 		writer.Header().Set("Content-Type", request.Header.Get("Content-Type"))
 		_ = encoder.Encode(data)
@@ -153,7 +163,7 @@ func (r *authenticator) WebAuth(CharacterName string) (*oauth2.Token, error) {
 
 	go func() {
 		if err := hs.ListenAndServe(); err != http.ErrServerClosed {
-			logrus.WithError(err).Fatal("internal server error")
+			log.Fatal("internal server error:", err.Error())
 		}
 	}()
 
@@ -161,12 +171,12 @@ func (r *authenticator) WebAuth(CharacterName string) (*oauth2.Token, error) {
 	case <-stopChannel:
 		err = hs.Shutdown(ctx)
 		if err != nil {
-			logrus.WithError(err).Fatal("Error stopping webserver.")
+			log.Fatal("Error stopping webserver:", err.Error())
 		}
 	case <-ctx.Done():
 		err = hs.Shutdown(ctx)
 		if err != nil {
-			logrus.WithError(err).Fatal("Error stopping webserver.")
+			log.Fatal("Error stopping webserver:", err.Error())
 		}
 	}
 

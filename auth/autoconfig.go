@@ -11,8 +11,6 @@ import (
 
 	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/lestrrat-go/jwx/jwt"
-	"github.com/sirupsen/logrus"
-	"go.uber.org/zap"
 	"golang.org/x/oauth2"
 
 	"github.com/ferocious-space/evesso/datastore"
@@ -33,32 +31,32 @@ type OAuthAutoConfig struct {
 	cfg                                        *Config
 }
 
-func AutoConfig(cfgpath string) *OAuthAutoConfig {
+func AutoConfig(cfgpath string) (*OAuthAutoConfig, error) {
 	item := new(OAuthAutoConfig)
 	item.refresher = jwk.NewAutoRefresh(context.TODO())
 	item.cfg = new(Config)
-	if err := item.cfg.Load(cfgpath, zap.L()); err != nil {
-		logrus.WithError(err).Fatal("unable to load config", zap.String("cfgpath", cfgpath))
+	if err := item.cfg.Load(cfgpath); err != nil {
+		return nil, err
 	}
 	issuer, err := url.Parse(path.Join(CONST_ISSUER, CONST_AUTOCONFIG_URL))
 	if err != nil {
-		logrus.WithError(err).Fatal("unable to parse autoconfig url")
+		return nil, err
 	}
 	issuer.Scheme = "https"
 	resp, err := ssoClient.Get(issuer.String())
 	if err != nil {
-		logrus.WithError(err).Fatal("unable to fetch autoconfig url")
+		return nil, err
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		logrus.WithError(err).Fatal("unable to read autoconfig response")
+		return nil, err
 	}
 	if err := json.Unmarshal(data, &item); err != nil {
-		logrus.WithError(err).Fatal("unable to deserialize autoconfig response")
+		return nil, err
 	}
 	item.refresher.Configure(item.JwksURI, jwk.WithHTTPClient(ssoClient), jwk.WithRefreshInterval(5*time.Minute))
-	return item
+	return item, nil
 }
 
 func (r *OAuthAutoConfig) AppConfig() *Config {
@@ -86,7 +84,7 @@ func (r *OAuthAutoConfig) JWKSet() (jwk.Set, error) {
 func (r *OAuthAutoConfig) JWT(token *oauth2.Token) (jwt.Token, error) {
 	set, err := r.JWKSet()
 	if err != nil {
-		logrus.WithError(err).Fatal("Unable to fetch JWKKeys")
+		return nil, err
 	}
 	return jwt.Parse([]byte(token.AccessToken), jwt.WithKeySet(set))
 }
