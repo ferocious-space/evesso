@@ -15,6 +15,7 @@ import (
 
 type EVETokenSource struct {
 	sync.RWMutex
+	ctx           context.Context
 	t             *oauth2.Token
 	jt            jwt.Token
 	ocfg          *oauth2.Config
@@ -23,8 +24,8 @@ type EVETokenSource struct {
 	CharacterName string
 }
 
-func newEVETokenSource(ocfg *oauth2.Config, acfg *OAuthAutoConfig, tstore *datastore.DataStore, characterName string) *EVETokenSource {
-	return &EVETokenSource{ocfg: ocfg, acfg: acfg, CharacterName: characterName, store: tstore, t: nil, jt: nil}
+func newEVETokenSource(ctx context.Context, ocfg *oauth2.Config, acfg *OAuthAutoConfig, tstore *datastore.DataStore, characterName string) *EVETokenSource {
+	return &EVETokenSource{ctx: ctx, ocfg: ocfg, acfg: acfg, CharacterName: characterName, store: tstore, t: nil, jt: nil}
 }
 
 func (o *EVETokenSource) Token() (*oauth2.Token, error) {
@@ -39,7 +40,7 @@ func (o *EVETokenSource) Token() (*oauth2.Token, error) {
 		o.t = token
 	}
 	// get token from refresh token or refresh existing access token
-	l, err := o.ocfg.TokenSource(context.TODO(), o.t).Token()
+	l, err := o.ocfg.TokenSource(context.WithValue(o.ctx, oauth2.HTTPClient, o.acfg.SSOHttpClient), o.t).Token()
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +51,7 @@ func (o *EVETokenSource) Token() (*oauth2.Token, error) {
 
 	// verify token if changed
 	if o.t.AccessToken != l.AccessToken {
-		jwtToken, err := o.acfg.JWT(l)
+		jwtToken, err := o.acfg.JWT(o.ctx, l)
 		if err != nil {
 			return nil, err
 		}

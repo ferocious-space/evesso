@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"log"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/ferocious-space/evesso/datastore"
 	"github.com/ferocious-space/evesso/internal/tokengen"
@@ -11,11 +14,17 @@ import (
 )
 
 func main() {
-	cfg, err := auth.AutoConfig("config.json")
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg, err := auth.AutoConfig(ctx, "config.json", logger.Named("AutoConfig"))
 	if err != nil {
 		log.Fatal("unable to autoconfig:", err.Error())
 	}
-	ts := cfg.TokenSource(datastore.NewDataStore(datastore.NewMemoryAccountStore()), "Ferocious Bite", "publicData")
+	ts := cfg.TokenSource(ctx, datastore.NewDataStore(datastore.NewMemoryAccountStore()), "Ferocious Bite", "publicData")
 	if !ts.Valid() {
 		tk, err := tokengen.NewAuthenticator(cfg, "publicData").WebAuth("Ferocious Bite")
 		if err != nil {

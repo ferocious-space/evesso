@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"path"
 	"time"
 
+	"github.com/ferocious-space/durableclient"
 	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/lestrrat-go/jwx/jwt"
+	"go.uber.org/zap"
 	"golang.org/x/oauth2"
 
 	"github.com/ferocious-space/evesso/datastore"
@@ -29,11 +32,13 @@ type OAuthAutoConfig struct {
 	CodeChallengeMethodsSupported              []string `json:"code_challenge_methods_supported,omitempty"`
 	refresher                                  *jwk.AutoRefresh
 	cfg                                        *Config
+	SSOHttpClient                              *http.Client
 }
 
-func AutoConfig(cfgpath string) (*OAuthAutoConfig, error) {
+func AutoConfig(ctx context.Context, cfgpath string, logger *zap.Logger) (*OAuthAutoConfig, error) {
 	item := new(OAuthAutoConfig)
-	item.refresher = jwk.NewAutoRefresh(context.TODO())
+	item.SSOHttpClient = durableclient.NewClient("JWKS", "github.com/ferocious-space/evesso", logger)
+	item.refresher = jwk.NewAutoRefresh(ctx)
 	item.cfg = new(Config)
 	if err := item.cfg.Load(cfgpath); err != nil {
 		return nil, err
@@ -43,7 +48,7 @@ func AutoConfig(cfgpath string) (*OAuthAutoConfig, error) {
 		return nil, err
 	}
 	issuer.Scheme = "https"
-	resp, err := ssoClient.Get(issuer.String())
+	resp, err := item.SSOHttpClient.Get(issuer.String())
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +60,11 @@ func AutoConfig(cfgpath string) (*OAuthAutoConfig, error) {
 	if err := json.Unmarshal(data, &item); err != nil {
 		return nil, err
 	}
-	item.refresher.Configure(item.JwksURI, jwk.WithHTTPClient(ssoClient), jwk.WithRefreshInterval(5*time.Minute))
+	item.refresher.Configure(item.JwksURI, jwk.WithHTTPClient(item.SSOHttpClient), jwk.WithRefreshInterval(5*time.Minute))
+	_, err = item.JWKSet(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return item, nil
 }
 
@@ -77,12 +86,12 @@ func (r *OAuthAutoConfig) Oauth2Config(scopes ...string) *oauth2.Config {
 	}
 }
 
-func (r *OAuthAutoConfig) JWKSet() (jwk.Set, error) {
-	return r.refresher.Fetch(context.TODO(), r.JwksURI)
+func (r *OAuthAutoConfig) JWKSet(ctx context.Context) (jwk.Set, error) {
+	return r.refresher.Fetch(ctx, r.JwksURI)
 }
 
-func (r *OAuthAutoConfig) JWT(token *oauth2.Token) (jwt.Token, error) {
-	set, err := r.JWKSet()
+func (r *OAuthAutoConfig) JWT(ctx context.Context, token *oauth2.Token) (jwt.Token, error) {
+	set, err := r.JWKSet(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +102,6 @@ func (r *OAuthAutoConfig) ValidateToken(t jwt.Token, CharacterID int64, Owner st
 	return jwt.Validate(t, jwt.WithIssuer(CONST_ISSUER), jwt.WithAudience(r.cfg.Key), jwt.WithSubject(fmt.Sprintf("EVE:CHARACTER:%d", CharacterID)), jwt.WithClaimValue("owner", Owner))
 }
 
-func (r *OAuthAutoConfig) TokenSource(store *datastore.DataStore, CharacterName string, scopes ...string) *EVETokenSource {
-	return newEVETokenSource(r.Oauth2Config(scopes...), r, store, CharacterName)
+func (r *OAuthAutoConfig) TokenSource(ctx context.Context, store *datastore.DataStore, CharacterName string, scopes ...string) *EVETokenSource {
+	return newEVETokenSource(ctx, r.Oauth2Config(scopes...), r, store, CharacterName)
 }

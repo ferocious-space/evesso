@@ -67,7 +67,7 @@ func (r *authenticator) exchangeCode(ctx context.Context, state string, code str
 		oauth2.SetAuthURLParam("code_verifier", r.pkce.codeVerifier),
 	)
 	defer func() { r.pkce = nil }()
-	if jwtToken, err := r.acfg.JWT(token); err != nil {
+	if jwtToken, err := r.acfg.JWT(ctx, token); err != nil {
 		return nil, err
 	} else {
 		verifier, err := base64.RawURLEncoding.DecodeString(r.pkce.codeVerifier)
@@ -134,7 +134,7 @@ func (r *authenticator) WebAuth(CharacterName string) (*oauth2.Token, error) {
 		code := request.FormValue("code")
 		state := request.FormValue("state")
 		encoder := json.NewEncoder(writer)
-		token, err := r.exchangeCode(request.Context(), state, code)
+		token, err := r.exchangeCode(context.WithValue(request.Context(), oauth2.HTTPClient, r.acfg.SSOHttpClient), state, code)
 		if err != nil {
 			writer.WriteHeader(http.StatusInternalServerError)
 			stopChannel <- struct{}{}
