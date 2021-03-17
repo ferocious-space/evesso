@@ -98,7 +98,7 @@ func (r *OAuthAutoConfig) JWT(ctx context.Context, token *oauth2.Token) (jwt.Tok
 	return jwt.Parse([]byte(token.AccessToken), jwt.WithKeySet(set))
 }
 
-func (r *OAuthAutoConfig) ValidateToken(t jwt.Token, CharacterID int64, Owner string) error {
+func (r *OAuthAutoConfig) ValidateToken(t jwt.Token, CharacterID int32, Owner string) error {
 	return jwt.Validate(t, jwt.WithIssuer(CONST_ISSUER), jwt.WithAudience(r.cfg.Key), jwt.WithSubject(fmt.Sprintf("EVE:CHARACTER:%d", CharacterID)), jwt.WithClaimValue("owner", Owner))
 }
 

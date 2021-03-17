@@ -2,8 +2,9 @@ package auth
 
 import (
 	"crypto/rsa"
-	"encoding/json"
 	"os"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
@@ -20,7 +21,8 @@ func (c *Config) Load(path string) error {
 	if err != nil {
 		return err
 	}
-	if err = json.NewDecoder(cfg).Decode(&c); err != nil {
+	defer cfg.Close()
+	if err = yaml.NewDecoder(cfg).Decode(&c); err != nil {
 		return err
 	}
 	return nil

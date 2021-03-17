@@ -15,16 +15,16 @@ var ErrScope = errors.New("scopes dont match.")
 
 type AccountData struct {
 	CharacterName string
-	CharacterID   int64
+	CharacterID   int32
 	Owner         string
 	RefreshToken  string
 	Scopes        []string
 }
 
 type AccountStore interface {
-	Create(characterName string, characterID int64, owner string, refreshToken string, scopes []string) error
+	Create(characterName string, characterID int32, owner string, refreshToken string, scopes []string) error
 	SearchName(CharacterName string, Scopes []string) (data *AccountData, err error)
-	SearchID(CharacterID int64, Scopes []string) (data *AccountData, err error)
+	SearchID(CharacterID int32, Scopes []string) (data *AccountData, err error)
 	SearchOwner(Owner string, Scopes []string) (data *AccountData, err error)
 	Update(data *AccountData) error
 	Delete(data *AccountData) error
@@ -52,7 +52,7 @@ func NewMemoryAccountStore() *MemoryAccountStore {
 	return &MemoryAccountStore{accounts: []AccountData{}}
 }
 
-func (m *MemoryAccountStore) Create(characterName string, characterID int64, owner string, refreshToken string, scopes []string) error {
+func (m *MemoryAccountStore) Create(characterName string, characterID int32, owner string, refreshToken string, scopes []string) error {
 	for i := range m.accounts {
 		if m.accounts[i].CharacterID == characterID && m.accounts[i].Owner == owner {
 			return ErrAlreadyExists
@@ -77,7 +77,7 @@ func (m *MemoryAccountStore) SearchName(CharacterName string, Scopes []string) (
 	return nil, ErrNotFound
 }
 
-func (m *MemoryAccountStore) SearchID(CharacterID int64, Scopes []string) (data *AccountData, err error) {
+func (m *MemoryAccountStore) SearchID(CharacterID int32, Scopes []string) (data *AccountData, err error) {
 	for i := range m.accounts {
 		if m.accounts[i].CharacterID == CharacterID && listsMatch(m.accounts[i].Scopes, Scopes) {
 			return &m.accounts[i], nil
