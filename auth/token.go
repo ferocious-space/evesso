@@ -22,7 +22,7 @@ type EVETokenSource struct {
 	acfg          *OAuthAutoConfig
 	store         *datastore.DataStore
 	CharacterName string
-	CharacterID   int32
+	CharacterId   int32
 }
 
 func newEVETokenSource(ctx context.Context, ocfg *oauth2.Config, acfg *OAuthAutoConfig, tstore *datastore.DataStore, characterName string) *EVETokenSource {
@@ -39,7 +39,7 @@ func (o *EVETokenSource) Token() (*oauth2.Token, error) {
 			return nil, err
 		}
 		o.t = token
-		o.CharacterID = id
+		o.CharacterId = id
 	}
 	// get token from refresh token or refresh existing access token
 	l, err := o.ocfg.TokenSource(context.WithValue(o.ctx, oauth2.HTTPClient, o.acfg.SSOHttpClient), o.t).Token()
@@ -80,16 +80,14 @@ func (o *EVETokenSource) Save(token *oauth2.Token) error {
 		return err
 	}
 	o.t = token
-	o.CharacterID = id
+	o.CharacterId = id
 	return nil
 }
 
-func (o *EVETokenSource) AuthInfoWriter() runtime.ClientAuthInfoWriter {
-	return runtime.ClientAuthInfoWriterFunc(func(r runtime.ClientRequest, _ strfmt.Registry) error {
-		if t, e := o.Token(); e != nil {
-			return e
-		} else {
-			return r.SetHeaderParam("Authorization", "Bearer "+t.AccessToken)
-		}
-	})
+func (o *EVETokenSource) AuthenticateRequest(request runtime.ClientRequest, _ strfmt.Registry) error {
+	if t, e := o.Token(); e != nil {
+		return e
+	} else {
+		return request.SetHeaderParam("Authorization", "Bearer "+t.AccessToken)
+	}
 }

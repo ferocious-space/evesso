@@ -20,7 +20,7 @@ func (ds *DataStore) GetToken(CharacterName string, Scopes ...string) (character
 	if err != nil {
 		return 0, nil, err
 	}
-	return data.CharacterID, &oauth2.Token{
+	return data.CharacterId, &oauth2.Token{
 		RefreshToken: data.RefreshToken,
 	}, nil
 }

@@ -10,10 +10,8 @@ import (
 	"path"
 	"time"
 
-	"github.com/ferocious-space/durableclient"
 	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/lestrrat-go/jwx/jwt"
-	"go.uber.org/zap"
 	"golang.org/x/oauth2"
 
 	"github.com/ferocious-space/evesso/datastore"
@@ -35,9 +33,9 @@ type OAuthAutoConfig struct {
 	SSOHttpClient                              *http.Client
 }
 
-func AutoConfig(ctx context.Context, cfgpath string, logger *zap.Logger) (*OAuthAutoConfig, error) {
+func AutoConfig(ctx context.Context, cfgpath string, client *http.Client) (*OAuthAutoConfig, error) {
 	item := new(OAuthAutoConfig)
-	item.SSOHttpClient = durableclient.NewClient("JWKS", "github.com/ferocious-space/evesso", logger)
+	item.SSOHttpClient = client
 	item.refresher = jwk.NewAutoRefresh(ctx)
 	item.cfg = new(Config)
 	if err := item.cfg.Load(cfgpath); err != nil {
@@ -98,8 +96,8 @@ func (r *OAuthAutoConfig) JWT(ctx context.Context, token *oauth2.Token) (jwt.Tok
 	return jwt.Parse([]byte(token.AccessToken), jwt.WithKeySet(set))
 }
 
-func (r *OAuthAutoConfig) ValidateToken(t jwt.Token, CharacterID int32, Owner string) error {
-	return jwt.Validate(t, jwt.WithIssuer(CONST_ISSUER), jwt.WithAudience(r.cfg.Key), jwt.WithSubject(fmt.Sprintf("EVE:CHARACTER:%d", CharacterID)), jwt.WithClaimValue("owner", Owner))
+func (r *OAuthAutoConfig) ValidateToken(t jwt.Token, CharacterId int32, Owner string) error {
+	return jwt.Validate(t, jwt.WithIssuer(CONST_ISSUER), jwt.WithAudience(r.cfg.Key), jwt.WithSubject(fmt.Sprintf("EVE:CHARACTER:%d", CharacterId)), jwt.WithClaimValue("owner", Owner))
 }
 
 func (r *OAuthAutoConfig) TokenSource(ctx context.Context, store *datastore.DataStore, CharacterName string, scopes []string) *EVETokenSource {

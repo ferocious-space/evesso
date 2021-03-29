@@ -2,11 +2,10 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"sort"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/ferocious-space/durableclient"
 	"github.com/ferocious-space/eveapi"
 	"github.com/ferocious-space/eveapi/esi/character"
 	"github.com/ferocious-space/httpcache"
@@ -19,18 +18,14 @@ import (
 )
 
 func main() {
-
-	sort.Strings(auth.ALL_SCOPES)
-	for k := range auth.ALL_SCOPES {
-		fmt.Printf("\"%s\",\n", auth.ALL_SCOPES[k])
-	}
 	logger, err := zap.NewDevelopment()
+	defer logger.Sync()
 	if err != nil {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	cfg, err := auth.AutoConfig(ctx, "config.yaml", logger.Named("AutoConfig"))
+	cfg, err := auth.AutoConfig(ctx, "config.yaml", durableclient.NewClient("evesso", logger.Named("autoconfig")))
 	if err != nil {
 		log.Fatal("unable to autoconfig:", err.Error())
 	}
@@ -45,11 +40,9 @@ func main() {
 			panic(tk)
 		}
 	}
+	apic := eveapi.NewAPIClient(durableclient.NewCachedClient("eveapi", httpcache.NewLRUCache(1<<20*256, 300), logger.Named("ESI")))
+	roles, err := apic.Character.GetCharactersCharacterIDRoles(character.NewGetCharactersCharacterIDRolesParams().WithCharacterID(ts.CharacterId), ts)
 
-	apic := eveapi.NewAPIClient(httpcache.NewLRUCache(10<<20, 0), logger)
-
-	roles, err := apic.Character.GetCharactersCharacterIDRoles(character.NewGetCharactersCharacterIDRolesParams().WithCharacterID(ts.CharacterID), ts.AuthInfoWriter())
-	logger.Sync()
 	if err != nil {
 		logger.Fatal(err.Error(), zap.Error(err))
 	}

@@ -14,11 +14,11 @@ var ErrCharacterName = errors.New("characterName dont match.")
 var ErrScope = errors.New("scopes dont match.")
 
 type AccountData struct {
-	CharacterName string
-	CharacterID   int32
-	Owner         string
-	RefreshToken  string
-	Scopes        []string
+	CharacterName string   `bson:"character_name" json:"character_name"`
+	CharacterId   int32    `bson:"character_i_d" json:"character_i_d"`
+	Owner         string   `bson:"owner" json:"owner"`
+	RefreshToken  string   `bson:"refresh_token" json:"refresh_token"`
+	Scopes        []string `bson:"scopes" json:"scopes"`
 }
 
 type AccountStore interface {
@@ -54,13 +54,13 @@ func NewMemoryAccountStore() *MemoryAccountStore {
 
 func (m *MemoryAccountStore) Create(characterName string, characterID int32, owner string, refreshToken string, scopes []string) error {
 	for i := range m.accounts {
-		if m.accounts[i].CharacterID == characterID && m.accounts[i].Owner == owner {
+		if m.accounts[i].CharacterId == characterID && m.accounts[i].Owner == owner {
 			return ErrAlreadyExists
 		}
 	}
 	m.accounts = append(m.accounts, AccountData{
 		CharacterName: characterName,
-		CharacterID:   characterID,
+		CharacterId:   characterID,
 		Owner:         owner,
 		RefreshToken:  refreshToken,
 		Scopes:        scopes,
@@ -79,7 +79,7 @@ func (m *MemoryAccountStore) SearchName(CharacterName string, Scopes []string) (
 
 func (m *MemoryAccountStore) SearchID(CharacterID int32, Scopes []string) (data *AccountData, err error) {
 	for i := range m.accounts {
-		if m.accounts[i].CharacterID == CharacterID && listsMatch(m.accounts[i].Scopes, Scopes) {
+		if m.accounts[i].CharacterId == CharacterID && listsMatch(m.accounts[i].Scopes, Scopes) {
 			return &m.accounts[i], nil
 		}
 	}
@@ -97,7 +97,7 @@ func (m *MemoryAccountStore) SearchOwner(Owner string, Scopes []string) (data *A
 
 func (m *MemoryAccountStore) Update(data *AccountData) error {
 	for i := range m.accounts {
-		if m.accounts[i].Owner == data.Owner && m.accounts[i].CharacterID == data.CharacterID {
+		if m.accounts[i].Owner == data.Owner && m.accounts[i].CharacterId == data.CharacterId {
 			m.accounts[i] = *data
 			return nil
 		}
@@ -107,7 +107,7 @@ func (m *MemoryAccountStore) Update(data *AccountData) error {
 
 func (m *MemoryAccountStore) Delete(data *AccountData) error {
 	for i := range m.accounts {
-		if m.accounts[i].Owner == data.Owner && m.accounts[i].CharacterID == data.CharacterID {
+		if m.accounts[i].Owner == data.Owner && m.accounts[i].CharacterId == data.CharacterId {
 			m.accounts = append(m.accounts[:i], m.accounts[i+1:]...)
 			return nil
 		}

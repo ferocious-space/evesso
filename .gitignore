@@ -1,4 +1,4 @@
 /config.yaml
 /cmd/tokengen/config.yaml
 /cmd/tokengen/prv.key
-/cmd/tokengen/pk.pub
+/cmd/tokengen/pk.pubdist/
