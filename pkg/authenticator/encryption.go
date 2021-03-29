@@ -1,4 +1,4 @@
-package tokengen
+package authenticator
 
 import (
 	"crypto/rand"

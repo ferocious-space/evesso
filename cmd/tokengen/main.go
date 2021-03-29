@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ferocious-space/evesso/datastore"
-	"github.com/ferocious-space/evesso/internal/tokengen"
+	"github.com/ferocious-space/evesso/pkg/authenticator"
 
 	"github.com/ferocious-space/evesso/auth"
 )
@@ -31,7 +31,8 @@ func main() {
 	}
 	ts := cfg.TokenSource(ctx, datastore.NewDataStore(datastore.NewMemoryAccountStore()), "Ferocious Bite", auth.ALL_SCOPES)
 	if !ts.Valid() {
-		tk, err := tokengen.NewAuthenticator(cfg, auth.ALL_SCOPES).WebAuth("Ferocious Bite")
+
+		tk, err := authenticator.NewAuthenticator(cfg, auth.ALL_SCOPES).WebAuth("Ferocious Bite")
 		if err != nil {
 			log.Fatal("webauth:", err.Error())
 		}
