@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/ferocious-space/durableclient"
 	"github.com/ferocious-space/eveapi"
 	"github.com/ferocious-space/eveapi/esi/character"
-	"github.com/ferocious-space/httpcache"
+	"github.com/ferocious-space/httpcache/BoltCache"
+	"go.etcd.io/bbolt"
 	"go.uber.org/zap"
 
 	"github.com/ferocious-space/evesso/datastore"
@@ -23,13 +25,19 @@ func main() {
 	if err != nil {
 		return
 	}
+	opt := bbolt.DefaultOptions
+	opt.FreelistType = bbolt.FreelistMapType
+	db, err := bbolt.Open("cache.db", os.ModePerm, opt)
+	if err != nil {
+		logger.Fatal("", zap.Error(err))
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cfg, err := auth.AutoConfig(ctx, "config.yaml", durableclient.NewClient("evesso", logger.Named("autoconfig")))
 	if err != nil {
 		log.Fatal("unable to autoconfig:", err.Error())
 	}
-	ts := cfg.TokenSource(ctx, datastore.NewDataStore(datastore.NewMemoryAccountStore()), "Ferocious Bite", auth.ALL_SCOPES)
+	ts := cfg.TokenSource(ctx, datastore.NewDataStore(datastore.NewBoltAccountStore(db)), "Ferocious Bite", auth.ALL_SCOPES)
 	if !ts.Valid() {
 
 		tk, err := authenticator.NewAuthenticator(cfg, auth.ALL_SCOPES).WebAuth("Ferocious Bite")
@@ -41,11 +49,11 @@ func main() {
 			panic(tk)
 		}
 	}
-	apic := eveapi.NewAPIClient(durableclient.NewCachedClient("eveapi", httpcache.NewLRUCache(1<<20*256, 300), logger.Named("ESI")))
+	apic := eveapi.NewAPIClient(durableclient.NewCachedClient("eveapi", BoltCache.NewBoltCache(db, "ESI", logger), logger.Named("ESI")))
 	roles, err := apic.Character.GetCharactersCharacterIDRoles(character.NewGetCharactersCharacterIDRolesParams().WithCharacterID(ts.CharacterId), ts)
-
 	if err != nil {
 		logger.Fatal(err.Error(), zap.Error(err))
 	}
 	spew.Dump(roles)
+
 }

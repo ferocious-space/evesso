@@ -2,6 +2,7 @@ package datastore
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/lestrrat-go/jwx/jwt"
 	"golang.org/x/oauth2"
@@ -22,6 +23,7 @@ func (ds *DataStore) GetToken(CharacterName string, Scopes ...string) (character
 	}
 	return data.CharacterId, &oauth2.Token{
 		RefreshToken: data.RefreshToken,
+		Expiry:       time.Now(),
 	}, nil
 }
 
@@ -65,5 +67,11 @@ func (ds *DataStore) SaveToken(token *oauth2.Token) (CharacterID int32, err erro
 		return 0, ErrCharacterID
 	}
 
-	return characterID, ds.astore.Create(characterName, characterID, owner, token.RefreshToken, scope)
+	return characterID, ds.astore.Create(&AccountData{
+		CharacterName: characterName,
+		CharacterId:   characterID,
+		Owner:         owner,
+		RefreshToken:  token.RefreshToken,
+		Scopes:        scope,
+	})
 }

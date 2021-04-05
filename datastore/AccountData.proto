@@ -1,0 +1,11 @@
+syntax = "proto3";
+package datastore;
+option go_package = "./datastore";
+
+message AccountData {
+  string CharacterName = 1;
+  int32 CharacterId = 2;
+  string Owner = 3;
+  string RefreshToken = 4;
+  repeated string Scopes = 5;
+}
