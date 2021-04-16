@@ -10,6 +10,7 @@ import (
 	"github.com/ferocious-space/eveapi"
 	"github.com/ferocious-space/eveapi/esi/character"
 	"github.com/ferocious-space/httpcache/BoltCache"
+	"github.com/go-logr/zapr"
 	"go.etcd.io/bbolt"
 	"go.uber.org/zap"
 
@@ -33,7 +34,10 @@ func main() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	cfg, err := auth.AutoConfig(ctx, "config.yaml", durableclient.NewClient("evesso", logger.Named("autoconfig")))
+
+	cl := durableclient.NewDurableClient(zapr.NewLogger(logger.Named("httpClient")), "github.com/ferocious-space/durableclient")
+	// cfg, err := auth.AutoConfig(ctx, "config.yaml", durableclient.NewClient("evesso", logger.Named("autoconfig")))
+	cfg, err := auth.AutoConfig(ctx, "config.yaml", cl.Client(durableclient.OptionContext(ctx)))
 	if err != nil {
 		log.Fatal("unable to autoconfig:", err.Error())
 	}
@@ -49,11 +53,16 @@ func main() {
 			panic(tk)
 		}
 	}
-	apic := eveapi.NewAPIClient(durableclient.NewCachedClient("eveapi", BoltCache.NewBoltCache(db, "ESI", logger), logger.Named("ESI")))
+	apic := eveapi.NewAPIClient(cl.Client(durableclient.OptionRetrier(), durableclient.OptionConnectionPooling(), durableclient.OptionContext(ctx), durableclient.OptionCache(BoltCache.NewBoltCache(db, "eve", logger))))
 	roles, err := apic.Character.GetCharactersCharacterIDRoles(character.NewGetCharactersCharacterIDRolesParams().WithCharacterID(ts.CharacterId), ts)
 	if err != nil {
 		logger.Fatal(err.Error(), zap.Error(err))
 	}
+	corph, err := apic.Character.GetCharactersCharacterIDCorporationhistory(character.NewGetCharactersCharacterIDCorporationhistoryParams().WithCharacterID(ts.CharacterId))
+	if err != nil {
+		logger.Fatal(err.Error(), zap.Error(err))
+	}
 	spew.Dump(roles)
+	spew.Dump(corph.GetPayload())
 
 }

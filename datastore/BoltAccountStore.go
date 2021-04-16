@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"reflect"
 
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"go.etcd.io/bbolt"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -33,14 +34,14 @@ func fromByte(input []byte) (output interface{}) {
 }
 
 func MatchScopes(x, y []string) bool {
-	aLen := len(x)
-	bLen := len(y)
+	xLen := len(x)
+	yLen := len(y)
 
-	if aLen != bLen {
+	if xLen != yLen {
 		return false
 	}
 
-	if aLen > 20 {
+	if xLen > 20 {
 		return elementsMatchByMap(x, y)
 	} else {
 		return elementsMatchByLoop(x, y)
@@ -48,20 +49,20 @@ func MatchScopes(x, y []string) bool {
 
 }
 
-func elementsMatchByLoop(listA, listB []string) bool {
-	aLen := len(listA)
-	bLen := len(listB)
+func elementsMatchByLoop(x, y []string) bool {
+	xLen := len(x)
+	yLen := len(y)
 
-	visited := make([]bool, bLen)
+	visited := make([]bool, yLen)
 
-	for i := 0; i < aLen; i++ {
+	for i := 0; i < xLen; i++ {
 		found := false
-		element := listA[i]
-		for j := 0; j < bLen; j++ {
+		element := x[i]
+		for j := 0; j < yLen; j++ {
 			if visited[j] {
 				continue
 			}
-			if element == listB[j] {
+			if element == y[j] {
 				visited[j] = true
 				found = true
 				break
@@ -217,11 +218,9 @@ func (b *BoltAccountStore) Create(data *AccountData) error {
 	if err != nil {
 		return err
 	}
-	seq, err := bkt.NextSequence()
-	if err != nil {
-		return err
-	}
-	binSeq := MakeField(seq)
+	seq := uuid.New()
+
+	binSeq := MakeField(seq.String())
 
 	bin, err := protojson.Marshal(data)
 	if err != nil {

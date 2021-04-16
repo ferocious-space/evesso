@@ -1,6 +1,8 @@
 package datastore
 
 import (
+	"reflect"
+
 	"github.com/pkg/errors"
 )
 
@@ -19,20 +21,24 @@ var ErrScope = errors.New("scopes dont match.")
 // 	Scopes        []string `bson:"scopes" json:"scopes"`
 // }
 
-func (r *AccountData) Valid() bool {
-	if len(r.CharacterName) == 0 {
+func (x AccountData) IsZero() bool {
+	return reflect.DeepEqual(x, AccountData{})
+}
+
+func (x *AccountData) Valid() bool {
+	if len(x.CharacterName) == 0 {
 		return false
 	}
-	if r.CharacterId <= 0 {
+	if x.CharacterId <= 0 {
 		return false
 	}
-	if len(r.Owner) == 0 {
+	if len(x.Owner) == 0 {
 		return false
 	}
-	if len(r.RefreshToken) == 0 {
+	if len(x.RefreshToken) == 0 {
 		return false
 	}
-	if len(r.Scopes) == 0 {
+	if len(x.Scopes) == 0 {
 		return false
 	}
 	return true
