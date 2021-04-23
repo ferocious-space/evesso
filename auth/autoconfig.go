@@ -58,7 +58,11 @@ func AutoConfig(ctx context.Context, cfgpath string, client *http.Client) (*OAut
 	if err := json.Unmarshal(data, &item); err != nil {
 		return nil, err
 	}
-	item.refresher.Configure(item.JwksURI, jwk.WithHTTPClient(item.SSOHttpClient), jwk.WithRefreshInterval(5*time.Minute))
+	item.refresher.Configure(
+		item.JwksURI,
+		jwk.WithHTTPClient(item.SSOHttpClient),
+		jwk.WithRefreshInterval(5*time.Minute),
+	)
 	_, err = item.JWKSet(ctx)
 	if err != nil {
 		return nil, err
@@ -97,9 +101,17 @@ func (r *OAuthAutoConfig) JWT(ctx context.Context, token *oauth2.Token) (jwt.Tok
 }
 
 func (r *OAuthAutoConfig) ValidateToken(t jwt.Token, CharacterId int32, Owner string) error {
-	return jwt.Validate(t, jwt.WithIssuer(CONST_ISSUER), jwt.WithAudience(r.cfg.Key), jwt.WithSubject(fmt.Sprintf("EVE:CHARACTER:%d", CharacterId)), jwt.WithClaimValue("owner", Owner))
+	return jwt.Validate(
+		t, jwt.WithIssuer(CONST_ISSUER), jwt.WithClaimValue("azp", r.cfg.Key),
+		jwt.WithSubject(fmt.Sprintf("CHARACTER:EVE:%d", CharacterId)), jwt.WithClaimValue("owner", Owner),
+	)
 }
 
-func (r *OAuthAutoConfig) TokenSource(ctx context.Context, store *datastore.DataStore, CharacterName string, scopes []string) *EVETokenSource {
+func (r *OAuthAutoConfig) TokenSource(
+	ctx context.Context,
+	store datastore.AccountStore,
+	CharacterName string,
+	scopes []string,
+) *EVETokenSource {
 	return newEVETokenSource(ctx, r.Oauth2Config(scopes...), r, store, CharacterName)
 }
