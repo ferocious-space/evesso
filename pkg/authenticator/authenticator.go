@@ -4,14 +4,13 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -100,19 +99,11 @@ func (r *authenticator) exchangeCode(ctx context.Context, state string, code str
 	return token, err
 }
 
-func (r *authenticator) WebAuth(CharacterName string) (*oauth2.Token, error) {
+func (r *authenticator) WebAuth(CharacterName string, pub *rsa.PublicKey) (*oauth2.Token, error) {
 
-	pks := r.acfg.AppConfig().PublicKey.Size()
+	pks := pub.Size()
 	if pks == 0 {
-		prv, pk, err := GenerateKeyPair(4096)
-		if err != nil {
-			return nil, err
-		}
-		prvBytes, _ := json.MarshalIndent(prv, "", " ")
-		pubBytes, _ := json.MarshalIndent(pk, "", " ")
-		r.acfg.AppConfig().PublicKey = pk
-		_ = ioutil.WriteFile("prv.key", prvBytes, os.ModePerm)
-		_ = ioutil.WriteFile("pk.pub", pubBytes, os.ModePerm)
+		return nil, errors.New("please provide valid public key")
 	}
 
 	if err := utils.OSExec(r.authURL(CharacterName)); err != nil {
@@ -130,31 +121,33 @@ func (r *authenticator) WebAuth(CharacterName string) (*oauth2.Token, error) {
 	outToken := new(oauth2.Token)
 	router := mux.NewRouter()
 
-	router.HandleFunc(callback.Path, func(writer http.ResponseWriter, request *http.Request) {
-		code := request.FormValue("code")
-		state := request.FormValue("state")
-		encoder := json.NewEncoder(writer)
-		token, err := r.exchangeCode(context.WithValue(request.Context(), oauth2.HTTPClient, r.acfg.SSOHttpClient), state, code)
-		if err != nil {
-			writer.WriteHeader(http.StatusInternalServerError)
+	router.HandleFunc(
+		callback.Path, func(writer http.ResponseWriter, request *http.Request) {
+			code := request.FormValue("code")
+			state := request.FormValue("state")
+			encoder := json.NewEncoder(writer)
+			token, err := r.exchangeCode(context.WithValue(request.Context(), oauth2.HTTPClient, r.acfg.SSOHttpClient), state, code)
+			if err != nil {
+				writer.WriteHeader(http.StatusInternalServerError)
+				stopChannel <- struct{}{}
+				_ = encoder.Encode(err.Error())
+				return
+			}
+			encToken, err := EncryptWithPublicKey([]byte(token.RefreshToken), pub)
+			if err != nil {
+				writer.WriteHeader(http.StatusInternalServerError)
+				stopChannel <- struct{}{}
+				_ = encoder.Encode(err.Error())
+				return
+			}
+			data := base64.RawURLEncoding.EncodeToString(encToken)
+			writer.Header().Set("Content-Disposition", "attachment; filename=token.json")
+			writer.Header().Set("Content-Type", request.Header.Get("Content-Type"))
+			_ = encoder.Encode(data)
+			outToken = token
 			stopChannel <- struct{}{}
-			_ = encoder.Encode(err.Error())
-			return
-		}
-		encToken, err := EncryptWithPublicKey([]byte(token.RefreshToken), r.acfg.AppConfig().PublicKey)
-		if err != nil {
-			writer.WriteHeader(http.StatusInternalServerError)
-			stopChannel <- struct{}{}
-			_ = encoder.Encode(err.Error())
-			return
-		}
-		data := base64.RawURLEncoding.EncodeToString(encToken)
-		writer.Header().Set("Content-Disposition", "attachment; filename=token.json")
-		writer.Header().Set("Content-Type", request.Header.Get("Content-Type"))
-		_ = encoder.Encode(data)
-		outToken = token
-		stopChannel <- struct{}{}
-	})
+		},
+	)
 
 	hs := &http.Server{Addr: fmt.Sprintf("%s:%s", callback.Hostname(), callback.Port()), Handler: router}
 

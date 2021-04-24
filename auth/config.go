@@ -1,19 +1,15 @@
 package auth
 
 import (
-	"crypto/rsa"
 	"os"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	Key           string
-	Secret        string
-	Callback      string
-	PublicKey     *rsa.PublicKey
-	CharacterName string
-	Scopes        []string
+	Key      string
+	Secret   string
+	Callback string
 }
 
 func (c *Config) Load(path string) error {
