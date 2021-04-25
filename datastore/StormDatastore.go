@@ -25,6 +25,10 @@ func NewBoltAccountStore(boltDB *bbolt.DB) AccountStore {
 	if err != nil {
 		panic(err)
 	}
+	err = bh.ReIndex(&AccountData{}, nil)
+	if err != nil {
+		return nil
+	}
 	return &BoltAccountStore{
 		store: bh,
 	}
