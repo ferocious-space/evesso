@@ -76,14 +76,14 @@ func (x *AccountData) Type() string {
 func (x *AccountData) Indexes() map[string]bolthold.Index {
 	return map[string]bolthold.Index{
 		"CharacterName": func(name string, value interface{}) ([]byte, error) {
-			data, ok := value.(AccountData)
+			data, ok := value.(*AccountData)
 			if !ok {
 				return nil, errors.New("invalid data passed to index")
 			}
 			return jsoniter.Marshal(data.CharacterName)
 		},
 		"CharacterId": func(name string, value interface{}) ([]byte, error) {
-			data, ok := value.(AccountData)
+			data, ok := value.(*AccountData)
 			if !ok {
 				return nil, errors.New("invalid data passed to index")
 			}
@@ -95,7 +95,7 @@ func (x *AccountData) Indexes() map[string]bolthold.Index {
 func (x *AccountData) SliceIndexes() map[string]bolthold.SliceIndex {
 	return map[string]bolthold.SliceIndex{
 		"Scopes": func(name string, value interface{}) ([][]byte, error) {
-			data, ok := value.(AccountData)
+			data, ok := value.(*AccountData)
 			if !ok {
 				return nil, errors.New("invalid data passed to index")
 			}
