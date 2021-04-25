@@ -7,6 +7,7 @@ import (
 	"github.com/ferocious-space/bolthold"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/lestrrat-go/jwx/jwt"
+	"github.com/pkg/errors"
 	"golang.org/x/oauth2"
 )
 
@@ -75,10 +76,18 @@ func (x *AccountData) Type() string {
 func (x *AccountData) Indexes() map[string]bolthold.Index {
 	return map[string]bolthold.Index{
 		"CharacterName": func(name string, value interface{}) ([]byte, error) {
-			return jsoniter.Marshal(x.CharacterName)
+			data, ok := value.(AccountData)
+			if !ok {
+				return nil, errors.New("invalid data passed to index")
+			}
+			return jsoniter.Marshal(data.CharacterName)
 		},
 		"CharacterId": func(name string, value interface{}) ([]byte, error) {
-			return jsoniter.Marshal(x.CharacterId)
+			data, ok := value.(AccountData)
+			if !ok {
+				return nil, errors.New("invalid data passed to index")
+			}
+			return jsoniter.Marshal(data.CharacterId)
 		},
 	}
 }
@@ -86,8 +95,12 @@ func (x *AccountData) Indexes() map[string]bolthold.Index {
 func (x *AccountData) SliceIndexes() map[string]bolthold.SliceIndex {
 	return map[string]bolthold.SliceIndex{
 		"Scopes": func(name string, value interface{}) ([][]byte, error) {
+			data, ok := value.(AccountData)
+			if !ok {
+				return nil, errors.New("invalid data passed to index")
+			}
 			var out [][]byte
-			for _, s := range x.Scopes {
+			for _, s := range data.Scopes {
 				out = append(out, []byte(s))
 			}
 			return out, nil
