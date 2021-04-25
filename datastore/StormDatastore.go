@@ -1,6 +1,9 @@
 package datastore
 
 import (
+	"crypto/sha256"
+	"strings"
+
 	"github.com/ferocious-space/bolthold"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/pkg/errors"
@@ -35,7 +38,7 @@ func NewBoltAccountStore(boltDB *bbolt.DB) AccountStore {
 }
 
 func (x *BoltAccountStore) Create(data *AccountData) error {
-	return x.store.Insert(bolthold.NextSequence(), data)
+	return x.store.Insert(sha256.New().Sum([]byte(strings.Join(data.Scopes, ", ")+data.Owner)), data)
 }
 
 func (x *BoltAccountStore) SearchName(CharacterName string, Scopes []string) (data *AccountData, err error) {
