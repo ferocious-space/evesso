@@ -1,6 +1,8 @@
 package datastore
 
 import (
+	"sort"
+
 	"github.com/ferocious-space/bolthold"
 	jsoniter "github.com/json-iterator/go"
 	"go.etcd.io/bbolt"
@@ -44,6 +46,7 @@ func (x *BoltAccountStore) SearchName(CharacterName string, Scopes []string) (da
 
 func (x *BoltAccountStore) SearchID(CharacterID int32, Scopes []string) (data *AccountData, err error) {
 	var result AccountData
+	sort.Strings(Scopes)
 	err = x.store.FindOne(&result, bolthold.Where("CharacterId").Eq(CharacterID).Index("CharacterId").And("Scopes").ContainsAll(bolthold.Slice(Scopes)...).Index("Scopes"))
 	if err != nil {
 		return nil, err

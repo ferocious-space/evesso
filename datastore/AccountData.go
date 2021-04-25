@@ -100,6 +100,7 @@ func (x *AccountData) SliceIndexes() map[string]bolthold.SliceIndex {
 				return nil, errors.New("invalid data passed to index")
 			}
 			var out [][]byte
+			sort.Strings(data.Scopes)
 			for _, s := range data.Scopes {
 				bin, err := jsoniter.Marshal(s)
 				if err != nil {
