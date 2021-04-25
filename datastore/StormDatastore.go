@@ -35,7 +35,7 @@ func (x *BoltAccountStore) Create(data *AccountData) error {
 
 func (x *BoltAccountStore) SearchName(CharacterName string, Scopes []string) (data *AccountData, err error) {
 	var result AccountData
-	err = x.store.FindOne(&result, bolthold.Where("CharacterName").Eq(CharacterName).And("Scopes").ContainsAll(bolthold.Slice(Scopes)))
+	err = x.store.FindOne(&result, bolthold.Where("CharacterName").Eq(CharacterName).Index("CharacterName").And("Scopes").ContainsAll(Scopes).Index("Scopes"))
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,7 @@ func (x *BoltAccountStore) SearchName(CharacterName string, Scopes []string) (da
 
 func (x *BoltAccountStore) SearchID(CharacterID int32, Scopes []string) (data *AccountData, err error) {
 	var result AccountData
-	err = x.store.FindOne(&result, bolthold.Where("CharacterId").Eq(CharacterID).And("Scopes").ContainsAll(bolthold.Slice(Scopes)))
+	err = x.store.FindOne(&result, bolthold.Where("CharacterId").Eq(CharacterID).Index("CharacterId").And("Scopes").ContainsAll(Scopes).Index("Scopes"))
 	if err != nil {
 		return nil, err
 	}

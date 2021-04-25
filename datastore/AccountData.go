@@ -101,7 +101,11 @@ func (x *AccountData) SliceIndexes() map[string]bolthold.SliceIndex {
 			}
 			var out [][]byte
 			for _, s := range data.Scopes {
-				out = append(out, []byte(s))
+				bin, err := jsoniter.Marshal(s)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, bin)
 			}
 			return out, nil
 		},
