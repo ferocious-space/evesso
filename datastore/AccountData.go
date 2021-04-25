@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/ferocious-space/bolthold"
+	jsoniter "github.com/json-iterator/go"
 	"github.com/lestrrat-go/jwx/jwt"
 	"golang.org/x/oauth2"
 )
@@ -64,4 +66,31 @@ func (x *AccountData) FromToken(token *oauth2.Token) error {
 	x.Owner = owner
 	x.Scopes = scope
 	return nil
+}
+
+func (x *AccountData) Type() string {
+	return "AccountData"
+}
+
+func (x *AccountData) Indexes() map[string]bolthold.Index {
+	return map[string]bolthold.Index{
+		"CharacterName": func(name string, value interface{}) ([]byte, error) {
+			return jsoniter.Marshal(x.CharacterName)
+		},
+		"CharacterId": func(name string, value interface{}) ([]byte, error) {
+			return jsoniter.Marshal(x.CharacterId)
+		},
+	}
+}
+
+func (x *AccountData) SliceIndexes() map[string]bolthold.SliceIndex {
+	return map[string]bolthold.SliceIndex{
+		"Scopes": func(name string, value interface{}) ([][]byte, error) {
+			var out [][]byte
+			for _, s := range x.Scopes {
+				out = append(out, []byte(s))
+			}
+			return out, nil
+		},
+	}
 }

@@ -1,99 +1,60 @@
 package datastore
 
 import (
-	"github.com/asdine/storm"
+	"github.com/ferocious-space/bolthold"
+	jsoniter "github.com/json-iterator/go"
 	"go.etcd.io/bbolt"
 )
 
-type StormAccountStore struct {
-	db *storm.DB
+type BoltAccountStore struct {
+	store *bolthold.Store
 }
 
-func NewStormAccountStore(boltDB *bbolt.DB) AccountStore {
-	s, err := storm.Open("", storm.UseDB(boltDB))
+func NewBoltAccountStore(boltDB *bbolt.DB) AccountStore {
+	bh, err := bolthold.Wrap(
+		boltDB, &bolthold.Options{
+			Encoder: func(value interface{}) ([]byte, error) {
+				return jsoniter.Marshal(value)
+			},
+			Decoder: func(data []byte, value interface{}) error {
+				return jsoniter.Unmarshal(data, value)
+			},
+		},
+	)
 	if err != nil {
 		panic(err)
 	}
-	err = s.Init(&AccountData{})
-	if err != nil {
-		panic(err)
+	return &BoltAccountStore{
+		store: bh,
 	}
-	return &StormAccountStore{db: s}
 }
 
-func (x *StormAccountStore) Create(data *AccountData) error {
-	tx, err := x.db.Begin(true)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	err = tx.Save(data)
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
+func (x *BoltAccountStore) Create(data *AccountData) error {
+	return x.store.Insert(data.Owner, data)
 }
 
-func (x *StormAccountStore) SearchName(CharacterName string, Scopes []string) (data *AccountData, err error) {
-	tx, err := x.db.Begin(false)
+func (x *BoltAccountStore) SearchName(CharacterName string, Scopes []string) (data *AccountData, err error) {
+	var result AccountData
+	err = x.store.FindOne(&result, bolthold.Where("CharacterName").Eq(CharacterName).And("Scopes").ContainsAll(bolthold.Slice(Scopes)))
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
-	var accounts []AccountData
-	err = tx.Find("CharacterName", CharacterName, &accounts)
+	return &result, nil
+}
+
+func (x *BoltAccountStore) SearchID(CharacterID int32, Scopes []string) (data *AccountData, err error) {
+	var result AccountData
+	err = x.store.FindOne(&result, bolthold.Where("CharacterId").Eq(CharacterID).And("Scopes").ContainsAll(bolthold.Slice(Scopes)))
 	if err != nil {
 		return nil, err
 	}
-	for _, a := range accounts {
-		if MatchScopes(Scopes, a.Scopes) {
-			return &a, nil
-		}
-	}
-	return nil, ErrNotFound
+	return &result, nil
 }
 
-func (x *StormAccountStore) SearchID(CharacterID int32, Scopes []string) (data *AccountData, err error) {
-	tx, err := x.db.Begin(false)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	var accounts []AccountData
-	err = tx.Find("CharacterID", CharacterID, &accounts)
-	if err != nil {
-		return nil, err
-	}
-	for _, a := range accounts {
-		if MatchScopes(Scopes, a.Scopes) {
-			return &a, nil
-		}
-	}
-	return nil, ErrNotFound
+func (x *BoltAccountStore) Update(data *AccountData) error {
+	return x.store.Update(data.Owner, data)
 }
 
-func (x *StormAccountStore) Update(data *AccountData) error {
-	tx, err := x.db.Begin(true)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	err = tx.Update(data)
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-func (x *StormAccountStore) Delete(data *AccountData) error {
-	tx, err := x.db.Begin(true)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	err = tx.DeleteStruct(data)
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
+func (x *BoltAccountStore) Delete(data *AccountData) error {
+	return x.store.Delete(data.Owner, data)
 }
