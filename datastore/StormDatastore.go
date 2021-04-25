@@ -1,10 +1,9 @@
 package datastore
 
 import (
-	"sort"
-
 	"github.com/ferocious-space/bolthold"
 	jsoniter "github.com/json-iterator/go"
+	"github.com/pkg/errors"
 	"go.etcd.io/bbolt"
 )
 
@@ -32,7 +31,7 @@ func NewBoltAccountStore(boltDB *bbolt.DB) AccountStore {
 }
 
 func (x *BoltAccountStore) Create(data *AccountData) error {
-	return x.store.Insert(data.Owner, data)
+	return x.store.Insert(bolthold.NextSequence(), data)
 }
 
 func (x *BoltAccountStore) SearchName(CharacterName string, Scopes []string) (data *AccountData, err error) {
@@ -46,7 +45,6 @@ func (x *BoltAccountStore) SearchName(CharacterName string, Scopes []string) (da
 
 func (x *BoltAccountStore) SearchID(CharacterID int32, Scopes []string) (data *AccountData, err error) {
 	var result AccountData
-	sort.Strings(Scopes)
 	err = x.store.FindOne(&result, bolthold.Where("CharacterId").Eq(CharacterID).Index("CharacterId").And("Scopes").ContainsAll(bolthold.Slice(Scopes)...).Index("Scopes"))
 	if err != nil {
 		return nil, err
@@ -55,9 +53,18 @@ func (x *BoltAccountStore) SearchID(CharacterID int32, Scopes []string) (data *A
 }
 
 func (x *BoltAccountStore) Update(data *AccountData) error {
-	return x.store.Update(data.Owner, data)
+	return x.store.UpdateMatching(
+		data, bolthold.Where("Owner").Eq(data.Owner).Index("Owner").And("Scopes").ContainsAll(bolthold.Slice(data.Scopes)...).Index("Scopes"), func(record interface{}) error {
+			update, ok := record.(*AccountData)
+			if !ok {
+				return errors.Errorf("invalid record: %T", record)
+			}
+			*update = *data
+			return nil
+		},
+	)
 }
 
 func (x *BoltAccountStore) Delete(data *AccountData) error {
-	return x.store.Delete(data.Owner, data)
+	return x.store.DeleteMatching(data, bolthold.Where("Owner").Eq(data.Owner).Index("Owner").And("Scopes").ContainsAll(bolthold.Slice(data.Scopes)...).Index("Scopes"))
 }

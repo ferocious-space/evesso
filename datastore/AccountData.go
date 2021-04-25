@@ -2,6 +2,7 @@ package datastore
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 
 	"github.com/ferocious-space/bolthold"
@@ -82,6 +83,13 @@ func (x *AccountData) Indexes() map[string]bolthold.Index {
 			}
 			return jsoniter.Marshal(data.CharacterName)
 		},
+		"Owner": func(name string, value interface{}) ([]byte, error) {
+			data, ok := value.(*AccountData)
+			if !ok {
+				return nil, errors.New("invalid data passed to index")
+			}
+			return jsoniter.Marshal(data.Owner)
+		},
 		"CharacterId": func(name string, value interface{}) ([]byte, error) {
 			data, ok := value.(*AccountData)
 			if !ok {
@@ -111,4 +119,27 @@ func (x *AccountData) SliceIndexes() map[string]bolthold.SliceIndex {
 			return out, nil
 		},
 	}
+}
+
+func (x *AccountData) Compare(other interface{}) (int, error) {
+	if reflect.TypeOf(other).Kind() == reflect.Ptr {
+		other = reflect.ValueOf(other).Elem().Interface()
+	}
+	y, ok := other.(AccountData)
+	if !ok {
+		return 0, errors.Errorf("invalid compare type %T with %T", x, other)
+	}
+	if x.CharacterId != y.CharacterId {
+		return -1, nil
+	}
+	if x.CharacterName != y.CharacterName {
+		return -1, nil
+	}
+	if x.Owner != y.Owner {
+		return -1, nil
+	}
+	if !MatchScopes(x.Scopes, y.Scopes) {
+		return -1, nil
+	}
+	return 0, nil
 }
