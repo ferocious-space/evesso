@@ -1,12 +1,13 @@
 package datastore
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"reflect"
 	"sort"
 
 	"github.com/ferocious-space/bolthold"
-	jsoniter "github.com/json-iterator/go"
 	"github.com/lestrrat-go/jwx/jwt"
 	"github.com/pkg/errors"
 	"golang.org/x/oauth2"
@@ -81,21 +82,26 @@ func (x *AccountData) Indexes() map[string]bolthold.Index {
 			if !ok {
 				return nil, errors.New("invalid data passed to index")
 			}
-			return jsoniter.Marshal(data.CharacterName)
+			return []byte(data.CharacterName), nil
 		},
 		"Owner": func(name string, value interface{}) ([]byte, error) {
 			data, ok := value.(*AccountData)
 			if !ok {
 				return nil, errors.New("invalid data passed to index")
 			}
-			return jsoniter.Marshal(data.Owner)
+			return []byte(data.Owner), nil
 		},
 		"CharacterId": func(name string, value interface{}) ([]byte, error) {
 			data, ok := value.(*AccountData)
 			if !ok {
 				return nil, errors.New("invalid data passed to index")
 			}
-			return jsoniter.Marshal(data.CharacterId)
+			idx := new(bytes.Buffer)
+			err := binary.Write(idx, binary.LittleEndian, data.CharacterId)
+			if err != nil {
+				return nil, err
+			}
+			return idx.Bytes(), nil
 		},
 	}
 }
@@ -110,11 +116,7 @@ func (x *AccountData) SliceIndexes() map[string]bolthold.SliceIndex {
 			var out [][]byte
 			sort.Strings(data.Scopes)
 			for _, s := range data.Scopes {
-				bin, err := jsoniter.Marshal(s)
-				if err != nil {
-					return nil, err
-				}
-				out = append(out, bin)
+				out = append(out, []byte(s))
 			}
 			return out, nil
 		},
