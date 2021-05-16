@@ -1,8 +1,11 @@
 package evesso
 
 import (
+	"context"
+	"fmt"
 	"sync"
 
+	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/lestrrat-go/jwx/jwt"
 	"golang.org/x/oauth2"
 
@@ -14,10 +17,12 @@ import (
 
 type ssoTokenSource struct {
 	sync.RWMutex
-	t     *oauth2.Token
-	jt    jwt.Token
-	ocfg  *oauth2.Config
-	acfg  *autoConfig
+	t *oauth2.Token
+
+	ctx         context.Context
+	jwkfn       func() (jwk.Set, error)
+	oauthConfig *oauth2.Config
+
 	store datastore.DataStore
 
 	Profile       *datastore.Profile
@@ -27,12 +32,32 @@ type ssoTokenSource struct {
 	owner       string
 }
 
+func (o *ssoTokenSource) JWT(token *oauth2.Token) (jwt.Token, error) {
+	ks, err := o.jwkfn()
+	if err != nil {
+		return nil, err
+	}
+	jt, err := jwt.ParseString(token.AccessToken, jwt.WithKeySet(ks))
+	if err != nil {
+		return nil, err
+	}
+	return jt, o.validate(jt)
+}
+
+func (o *ssoTokenSource) validate(token jwt.Token) error {
+	return jwt.Validate(
+		token,
+		jwt.WithIssuer(CONST_ISSUER), jwt.WithClaimValue("azp", o.oauthConfig.ClientID),
+		jwt.WithSubject(fmt.Sprintf("CHARACTER:EVE:%d", o.CharacterId)), jwt.WithClaimValue("owner", o.owner),
+	)
+}
+
 func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 	o.Lock()
 	defer o.Unlock()
 	if o.t == nil {
 		// get token from store , this should happen only on initial request
-		data, err := o.store.FindCharacter(o.Profile.ID, o.CharacterId, o.CharacterName, o.owner, o.ocfg.Scopes...)
+		data, err := o.store.FindCharacter(o.Profile.ID, o.CharacterId, o.CharacterName, o.owner, o.oauthConfig.Scopes...)
 		if err != nil {
 			return nil, err
 		}
@@ -41,7 +66,7 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 		o.owner = data.Owner
 	}
 	// get token from refresh token or refresh existing access token
-	l, err := o.ocfg.TokenSource(o.acfg.SSOCTX, o.t).Token()
+	l, err := o.oauthConfig.TokenSource(o.ctx, o.t).Token()
 	if err != nil {
 		return nil, err
 	}
@@ -61,15 +86,14 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 	}
 	// verify token if changed
 	if o.t.AccessToken != l.AccessToken {
-		jwtToken, err := o.acfg.JWT(l)
+		jwtToken, err := o.JWT(l)
 		if err != nil {
 			return nil, err
 		}
-		if err := o.acfg.ValidateToken(jwtToken, o.CharacterId, o.owner); err != nil {
+		if err := o.validate(jwtToken); err != nil {
 			return nil, err
 		}
 		o.t = l
-		o.jt = jwtToken
 	}
 	return o.t, nil
 }
@@ -103,7 +127,7 @@ func (o *ssoTokenSource) AuthUrl() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return o.ocfg.AuthCodeURL(
+	return o.oauthConfig.AuthCodeURL(
 		pkce.State,
 		oauth2.AccessTypeOffline,
 		oauth2.SetAuthURLParam("code_challange", pkce.CodeChallange),
@@ -111,17 +135,17 @@ func (o *ssoTokenSource) AuthUrl() (string, error) {
 	), nil
 }
 
-func (o *ssoTokenSource) LocalhostCallback() error {
+func (o *ssoTokenSource) LocalhostCallback(fn func(url string) (*oauth2.Token, error)) error {
 	if !o.Valid() {
 		u, e := o.AuthUrl()
 		if e != nil {
 			return e
 		}
-		_, e = o.acfg.LocalhostAuth(u)
+		t, e := fn(u)
 		if e != nil {
 			return e
 		}
-		//return o.Save(t)
+		return o.Save(t)
 	}
 	return nil
 }

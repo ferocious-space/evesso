@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/lestrrat-go/jwx/jwk"
-	"github.com/lestrrat-go/jwx/jwt"
 	"github.com/pkg/errors"
 	"golang.org/x/oauth2"
 	"gorm.io/gorm"
@@ -33,20 +32,24 @@ type autoConfig struct {
 	TokenEndpointAuthMethodsSupported          []string `json:"token_endpoint_auth_methods_supported,omitempty"`
 	TokenEndpointAuthSigningAlgValuesSupported []string `json:"token_endpoint_auth_signing_alg_values_supported,omitempty"`
 	CodeChallengeMethodsSupported              []string `json:"code_challenge_methods_supported,omitempty"`
-	refresher                                  *jwk.AutoRefresh
-	cfg                                        *appConfig
-	SSOHttpClient                              *http.Client
 
-	store  datastore.DataStore
-	SSOCTX context.Context
+	refresher *jwk.AutoRefresh
+	cfg       *appConfig
+	client    *http.Client
+
+	store datastore.DataStore
+	ctx   context.Context
 }
 
 func AutoConfig(ctx context.Context, store datastore.DataStore, cfgpath string, client *http.Client) (*autoConfig, error) {
+	if client == nil {
+		client = &http.Client{Timeout: 5 * time.Minute}
+	}
 	item := new(autoConfig)
-	item.SSOHttpClient = client
+	item.client = client
 	item.refresher = jwk.NewAutoRefresh(ctx)
 	item.cfg = new(appConfig)
-	item.SSOCTX = context.WithValue(ctx, oauth2.HTTPClient, client)
+	item.ctx = ctx
 	item.store = store
 	if err := item.cfg.Load(cfgpath); err != nil {
 		return nil, err
@@ -56,7 +59,7 @@ func AutoConfig(ctx context.Context, store datastore.DataStore, cfgpath string, 
 		return nil, err
 	}
 	issuer.Scheme = "https"
-	resp, err := item.SSOHttpClient.Get(issuer.String())
+	resp, err := client.Get(issuer.String())
 	if err != nil {
 		return nil, err
 	}
@@ -70,13 +73,9 @@ func AutoConfig(ctx context.Context, store datastore.DataStore, cfgpath string, 
 	}
 	item.refresher.Configure(
 		item.JwksURI,
-		jwk.WithHTTPClient(item.SSOHttpClient),
+		jwk.WithHTTPClient(client),
 		jwk.WithRefreshInterval(5*time.Minute),
 	)
-	_, err = item.JWKSet()
-	if err != nil {
-		return nil, err
-	}
 	return item, nil
 }
 
@@ -98,25 +97,6 @@ func (r *autoConfig) OAuth2(scopes ...string) *oauth2.Config {
 	}
 }
 
-func (r *autoConfig) JWKSet() (jwk.Set, error) {
-	return r.refresher.Fetch(r.SSOCTX, r.JwksURI)
-}
-
-func (r *autoConfig) JWT(token *oauth2.Token) (jwt.Token, error) {
-	set, err := r.JWKSet()
-	if err != nil {
-		return nil, err
-	}
-	return jwt.Parse([]byte(token.AccessToken), jwt.WithKeySet(set))
-}
-
-func (r *autoConfig) ValidateToken(jwtToken jwt.Token, CharacterId int32, Owner string) error {
-	return jwt.Validate(
-		jwtToken, jwt.WithIssuer(CONST_ISSUER), jwt.WithClaimValue("azp", r.cfg.Key),
-		jwt.WithSubject(fmt.Sprintf("CHARACTER:EVE:%d", CharacterId)), jwt.WithClaimValue("owner", Owner),
-	)
-}
-
 func (r *autoConfig) TokenSource(ProfileName, CharacterName string, Scopes ...string) (*ssoTokenSource, error) {
 	profile, err := r.store.FindProfile(uuid.Nil, ProfileName)
 	if err != nil {
@@ -132,10 +112,12 @@ func (r *autoConfig) TokenSource(ProfileName, CharacterName string, Scopes ...st
 		}
 	}
 	return &ssoTokenSource{
-		t:             nil,
-		jt:            nil,
-		ocfg:          r.OAuth2(Scopes...),
-		acfg:          r,
+		t:           nil,
+		ctx:         context.WithValue(r.ctx, oauth2.HTTPClient, r.client),
+		oauthConfig: r.OAuth2(Scopes...),
+		jwkfn: func() (jwk.Set, error) {
+			return r.refresher.Fetch(r.ctx, r.JwksURI)
+		},
 		store:         r.store,
 		Profile:       profile,
 		CharacterName: CharacterName,
@@ -154,31 +136,31 @@ func (r *autoConfig) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	//delete the state as we are handling it at the moment
 	err = r.store.DeletePKCE(state)
 	if err != nil {
-		encoder.Encode(err)
+		_ = encoder.Encode(err)
 		return
 	}
 	//check if more than 5 mins passed
 	if time.Since(pkce.Time()) > 5*time.Minute {
-		encoder.Encode("PKCE timeout")
+		_ = encoder.Encode("PKCE timeout")
 		return
 	}
 
 	//get the token
 	token, err := r.OAuth2().Exchange(
-		r.SSOCTX,
+		r.ctx,
 		code,
 		oauth2.SetAuthURLParam("code_verifier", pkce.CodeVerifier),
 	)
 	if err != nil {
 		//token exchange failed ?
-		encoder.Encode(err)
+		_ = encoder.Encode(err)
 		return
 	}
 
 	//extract character
 	character, err := datastore.ParseToken(token)
 	if err != nil {
-		encoder.Encode(err)
+		_ = encoder.Encode(err)
 		//token parse failed ?
 		return
 	}
@@ -192,11 +174,11 @@ func (r *autoConfig) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			profile.ProfileName = pkce.ProfileName
 			err := r.store.CreateProfile(profile)
 			if err != nil {
-				encoder.Encode(err)
+				_ = encoder.Encode(err)
 				return
 			}
 		} else {
-			encoder.Encode(err)
+			_ = encoder.Encode(err)
 			return
 		}
 	}
@@ -204,12 +186,12 @@ func (r *autoConfig) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// we have profile now , create the character in the profile
 	err = profile.CreateCharacter(character)
 	if err != nil {
-		encoder.Encode(err)
+		_ = encoder.Encode(err)
 		return
 	}
 
-	json.NewEncoder(w).Encode(profile)
-	json.NewEncoder(w).Encode(character)
+	_ = encoder.Encode(profile)
+	_ = encoder.Encode(character)
 }
 
 func (r *autoConfig) LocalhostAuth(urlPath string) (*oauth2.Token, error) {
@@ -262,7 +244,7 @@ func (r *autoConfig) LocalhostAuth(urlPath string) (*oauth2.Token, error) {
 			}
 
 			token, err := r.OAuth2().Exchange(
-				r.SSOCTX,
+				r.ctx,
 				code,
 				oauth2.SetAuthURLParam("code_verifier", pkce.CodeVerifier),
 			)
