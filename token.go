@@ -81,16 +81,11 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 		if err != nil {
 			return nil, err
 		}
-		o.CharacterId = data.CharacterID
-		o.owner = data.Owner
 	}
 	// verify token if changed
 	if o.t.AccessToken != l.AccessToken {
-		jwtToken, err := o.JWT(l)
+		_, err := o.JWT(l)
 		if err != nil {
-			return nil, err
-		}
-		if err := o.validate(jwtToken); err != nil {
 			return nil, err
 		}
 		o.t = l

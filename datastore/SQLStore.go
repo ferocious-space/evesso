@@ -3,11 +3,14 @@ package datastore
 import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 type Store struct {
 	db *gorm.DB
+}
+
+func (s *Store) gdb() *gorm.DB {
+	return s.db
 }
 
 func NewStore(db *gorm.DB) *Store {
@@ -63,11 +66,7 @@ func (s *Store) CreateCharacter(profileID uuid.UUID, profileName string, charact
 	return s.db.Transaction(
 		func(tx *gorm.DB) error {
 			character.ProfileID = profile.ID
-			rs := tx.Clauses(
-				clause.OnConflict{
-					UpdateAll: true,
-				},
-			).Create(character)
+			rs := tx.Create(character)
 			return rs.Error
 		},
 	)

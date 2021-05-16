@@ -38,6 +38,7 @@ type Profile struct {
 	ID uuid.UUID `gorm:"primaryKey"`
 	//ProfileType can be used to define custom profile types , e.g. service bot that uses multiple characters to query esi for information
 	ProfileName string     `json:"profile_name" gorm:"uniqueIndex;column:profile_name"`
+	ProfileData []byte     `json:"profile_data" gorm:"column:profile_data;"`
 	Characters  Characters `json:"characters"`
 }
 
@@ -48,8 +49,27 @@ func (p *Profile) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
+func (p *Profile) Update(ProfileName string, ProfileData interface{}) error {
+	updates := map[string]interface{}{}
+	if ProfileName != "" {
+		updates["profile_name"] = ProfileName
+	}
+	if ProfileData != nil {
+		marshal, err := json.Marshal(ProfileData)
+		if err != nil {
+			return err
+		}
+		updates["profile_data"] = marshal
+	}
+	return p.store.gdb().Model(p).Updates(updates).Error
+}
+
 func (p *Profile) CreateCharacter(character *Character) error {
 	return p.store.CreateCharacter(p.ID, p.ProfileName, character)
+}
+
+func (p *Profile) DeleteCharacter(character *Character) error {
+	return p.store.DeleteCharacter(p.ID, p.ProfileName, character)
 }
 
 func (p *Profile) MakePKCE() (*PKCE, error) {
@@ -71,11 +91,29 @@ type Character struct {
 	//ESI CharacterOwner
 	Owner string `json:"owner" gorm:"index;column:owner;primaryKey;"`
 
+	//Custom CharacterData
+	CharacterData []byte `json:"character_data" gorm:"column:character_data;"`
+
 	//RefreshToken is oauth2 refresh token
 	RefreshToken string `json:"refresh_token" gorm:"column:refresh_token"`
 
 	//Scopes is the scopes the refresh token was issued with
 	Scopes Scopes `json:"scopes" gorm:"primaryKey;index;"`
+}
+
+func (c *Character) Update(RefreshToken string, CharacterData interface{}) error {
+	updates := map[string]interface{}{}
+	if RefreshToken != "" {
+		updates["refresh_token"] = RefreshToken
+	}
+	if CharacterData != nil {
+		marshal, err := json.Marshal(CharacterData)
+		if err != nil {
+			return err
+		}
+		updates["character_data"] = marshal
+	}
+	return c.store.gdb().Model(c).Updates(updates).Error
 }
 
 func WithScopes(scopes ...string) func(db *gorm.DB) *gorm.DB {

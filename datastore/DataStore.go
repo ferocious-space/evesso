@@ -3,13 +3,18 @@
 
 package datastore
 
-import "github.com/google/uuid"
+import (
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
 
 type DataStore interface {
 	ProfileStore
 	CharacterStore
 
 	PKCEStore
+
+	gdb() *gorm.DB
 }
 
 type ProfileStore interface {
