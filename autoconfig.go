@@ -21,7 +21,7 @@ import (
 	"github.com/ferocious-space/evesso/internal/utils"
 )
 
-type autoConfig struct {
+type EVESSO struct {
 	Issuer                                     string   `json:"issuer,omitempty"`
 	AuthorizationEndpoint                      string   `json:"authorization_endpoint,omitempty"`
 	TokenEndpoint                              string   `json:"token_endpoint,omitempty"`
@@ -41,11 +41,11 @@ type autoConfig struct {
 	ctx   context.Context
 }
 
-func AutoConfig(ctx context.Context, store datastore.DataStore, cfgpath string, client *http.Client) (*autoConfig, error) {
+func AutoConfig(ctx context.Context, store datastore.DataStore, cfgpath string, client *http.Client) (*EVESSO, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Minute}
 	}
-	item := new(autoConfig)
+	item := new(EVESSO)
 	item.client = client
 	item.refresher = jwk.NewAutoRefresh(ctx)
 	item.cfg = new(appConfig)
@@ -79,11 +79,11 @@ func AutoConfig(ctx context.Context, store datastore.DataStore, cfgpath string, 
 	return item, nil
 }
 
-func (r *autoConfig) AppConfig() *appConfig {
+func (r *EVESSO) AppConfig() *appConfig {
 	return r.cfg
 }
 
-func (r *autoConfig) OAuth2(scopes ...string) *oauth2.Config {
+func (r *EVESSO) OAuth2(scopes ...string) *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:     r.cfg.Key,
 		ClientSecret: r.cfg.Secret,
@@ -97,7 +97,7 @@ func (r *autoConfig) OAuth2(scopes ...string) *oauth2.Config {
 	}
 }
 
-func (r *autoConfig) TokenSource(ProfileName, CharacterName string, Scopes ...string) (*ssoTokenSource, error) {
+func (r *EVESSO) TokenSource(ProfileName, CharacterName string, Scopes ...string) (*ssoTokenSource, error) {
 	profile, err := r.store.FindProfile(uuid.Nil, ProfileName)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -124,7 +124,7 @@ func (r *autoConfig) TokenSource(ProfileName, CharacterName string, Scopes ...st
 	}, nil
 }
 
-func (r *autoConfig) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (r *EVESSO) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	encoder := json.NewEncoder(w)
 	code := req.FormValue("code")
 	state := req.FormValue("state")
@@ -194,7 +194,7 @@ func (r *autoConfig) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	_ = encoder.Encode(character)
 }
 
-func (r *autoConfig) LocalhostAuth(urlPath string) (*oauth2.Token, error) {
+func (r *EVESSO) LocalhostAuth(urlPath string) (*oauth2.Token, error) {
 	if err := utils.OSExec(urlPath); err != nil {
 		return nil, err
 	}
