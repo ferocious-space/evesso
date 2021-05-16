@@ -57,7 +57,7 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 	defer o.Unlock()
 	if o.t == nil {
 		// get token from store , this should happen only on initial request
-		data, err := o.store.FindCharacter(o.Profile.ID, o.CharacterId, o.CharacterName, o.owner, o.oauthConfig.Scopes...)
+		data, err := o.store.FindCharacter(o.Profile.ID, o.CharacterId, o.CharacterName, o.owner, o.oauthConfig.Scopes)
 		if err != nil {
 			return nil, err
 		}
@@ -76,8 +76,11 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 		if err != nil {
 			return nil, err
 		}
-
-		err = o.Profile.CreateCharacter(data)
+		char, err := data.Find(o.store, o.Profile.ID, o.oauthConfig.Scopes)
+		if err != nil {
+			return nil, err
+		}
+		err = char.Update(l.RefreshToken, nil)
 		if err != nil {
 			return nil, err
 		}

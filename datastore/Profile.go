@@ -101,6 +101,10 @@ type Character struct {
 	Scopes Scopes `json:"scopes" gorm:"primaryKey;index;"`
 }
 
+func (c *Character) Find(store DataStore, profileID uuid.UUID, scopes Scopes) (*Character, error) {
+	return store.FindCharacter(profileID, c.CharacterID, c.CharacterName, c.Owner, scopes)
+}
+
 func (c *Character) Update(RefreshToken string, CharacterData interface{}) error {
 	updates := map[string]interface{}{}
 	if RefreshToken != "" {

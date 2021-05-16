@@ -16,6 +16,14 @@ type appConfig struct {
 	Secret string
 	//Callback
 	Callback string
+	//Autocert enable/disable letsencrypt
+	Autocert bool
+	//AutocertCache location to save certs if letsencrypt is enabled
+	AutocertCache string
+	//TLSCert path to pem Cert file to use for https if letsencrypt is disabled
+	TLSCert string
+	//TLSKey path to pem Key file to use for https if letsencrypt is disabled
+	TLSKey string
 }
 
 func (c *appConfig) Load(path string) error {

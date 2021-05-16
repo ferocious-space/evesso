@@ -43,7 +43,7 @@ func (s *Store) DeleteCharacter(profileID uuid.UUID, profileName string, charact
 	if err != nil {
 		return err
 	}
-	searchCharacter, err := s.FindCharacter(profileID, character.CharacterID, character.CharacterName, character.Owner, character.Scopes...)
+	searchCharacter, err := s.FindCharacter(profileID, character.CharacterID, character.CharacterName, character.Owner, character.Scopes)
 	if err != nil {
 		return err
 	}
@@ -83,7 +83,7 @@ func (s *Store) CreateProfile(profile *Profile) error {
 	return result.Error
 }
 
-func (s *Store) FindCharacter(profileID uuid.UUID, characterID int32, characterName string, Owner string, Scopes ...string) (*Character, error) {
+func (s *Store) FindCharacter(profileID uuid.UUID, characterID int32, characterName string, Owner string, Scopes Scopes) (*Character, error) {
 	character := new(Character)
 	character.store = s
 	query := make(map[string]interface{}, 0)

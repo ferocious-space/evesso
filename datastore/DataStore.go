@@ -25,7 +25,7 @@ type ProfileStore interface {
 
 type CharacterStore interface {
 	CreateCharacter(profileID uuid.UUID, profileName string, character *Character) error
-	FindCharacter(profileID uuid.UUID, characterID int32, characterName string, Owner string, Scopes ...string) (*Character, error)
+	FindCharacter(profileID uuid.UUID, characterID int32, characterName string, Owner string, Scopes Scopes) (*Character, error)
 	DeleteCharacter(profileID uuid.UUID, profileName string, character *Character) error
 }
 

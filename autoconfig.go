@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/pkg/errors"
+	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/oauth2"
 	"gorm.io/gorm"
 
@@ -262,7 +263,23 @@ func (r *EVESSO) LocalhostAuth(urlPath string) (*oauth2.Token, error) {
 	)
 
 	go func() {
-		err = e.Start(fmt.Sprintf("%s:%s", callback.Hostname(), callback.Port()))
+		if callback.Port() == "" {
+			if callback.Scheme == "http" {
+				err = e.Start(":80")
+			} else {
+				if r.AppConfig().Autocert {
+					e.AutoTLSManager.HostPolicy = autocert.HostWhitelist(callback.Hostname())
+					e.AutoTLSManager.Cache = autocert.DirCache(r.AppConfig().AutocertCache)
+					err = e.StartAutoTLS(":443")
+				} else {
+					err = e.StartTLS(":443", r.AppConfig().TLSCert, r.AppConfig().TLSKey)
+				}
+
+			}
+		} else {
+			err = e.Start(fmt.Sprintf(":%s", callback.Port()))
+		}
+
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil
 		}

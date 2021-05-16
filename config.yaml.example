@@ -2,3 +2,7 @@
 key: [[Client ID]]
 secret: [[Secret Key]]
 callback: [[http://localhost:12345/sso/callback]]
+autocert: false/true
+autocertCache: [[/var/www/.cache]]
+tlscert: [[/var/www/example.com.pem]]
+tlskey: [[/var/www/example.com_key.pem]]
