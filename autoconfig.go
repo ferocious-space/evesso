@@ -185,7 +185,7 @@ func (r *EVESSO) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// we have profile now , create the character in the profile
-	err = profile.CreateCharacter(character)
+	err = r.store.CreateCharacter(profile.ID, profile.ProfileName, character)
 	if err != nil {
 		_ = encoder.Encode(err)
 		return

@@ -76,7 +76,7 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 		if err != nil {
 			return nil, err
 		}
-		char, err := data.Find(o.store, o.Profile.ID, o.oauthConfig.Scopes)
+		char, err := o.store.FindCharacter(o.Profile.ID, data.CharacterID, data.CharacterName, data.Owner, data.Scopes)
 		if err != nil {
 			return nil, err
 		}
@@ -110,7 +110,7 @@ func (o *ssoTokenSource) Save(token *oauth2.Token) error {
 	if err != nil {
 		return err
 	}
-	err = o.Profile.CreateCharacter(character)
+	err = o.store.CreateCharacter(o.Profile.ID, o.Profile.ProfileName, character)
 	if err != nil {
 		return err
 	}

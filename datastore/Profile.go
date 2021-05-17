@@ -64,14 +64,6 @@ func (p *Profile) Update(ProfileName string, ProfileData interface{}) error {
 	return p.store.gdb().Model(p).Updates(updates).Error
 }
 
-func (p *Profile) CreateCharacter(character *Character) error {
-	return p.store.CreateCharacter(p.ID, p.ProfileName, character)
-}
-
-func (p *Profile) DeleteCharacter(character *Character) error {
-	return p.store.DeleteCharacter(p.ID, p.ProfileName, character)
-}
-
 func (p *Profile) MakePKCE() (*PKCE, error) {
 	return p.store.CreatePKCE(p)
 }
@@ -99,10 +91,6 @@ type Character struct {
 
 	//Scopes is the scopes the refresh token was issued with
 	Scopes Scopes `json:"scopes" gorm:"primaryKey;index;"`
-}
-
-func (c *Character) Find(store DataStore, profileID uuid.UUID, scopes Scopes) (*Character, error) {
-	return store.FindCharacter(profileID, c.CharacterID, c.CharacterName, c.Owner, scopes)
 }
 
 func (c *Character) Update(RefreshToken string, CharacterData interface{}) error {
