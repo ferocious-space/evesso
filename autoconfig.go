@@ -10,16 +10,14 @@ import (
 	"path"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/oauth2"
-	"gorm.io/gorm"
 
-	"github.com/ferocious-space/evesso/datastore"
 	"github.com/ferocious-space/evesso/internal/utils"
+	"github.com/ferocious-space/evesso/pkg/datastore"
 )
 
 type EVESSO struct {
@@ -42,7 +40,7 @@ type EVESSO struct {
 	ctx   context.Context
 }
 
-func AutoConfig(ctx context.Context, store datastore.DataStore, cfgpath string, client *http.Client) (*EVESSO, error) {
+func AutoConfig(ctx context.Context, cfgpath string, client *http.Client) (*EVESSO, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Minute}
 	}
@@ -51,10 +49,14 @@ func AutoConfig(ctx context.Context, store datastore.DataStore, cfgpath string, 
 	item.refresher = jwk.NewAutoRefresh(ctx)
 	item.cfg = new(appConfig)
 	item.ctx = ctx
-	item.store = store
 	if err := item.cfg.Load(cfgpath); err != nil {
 		return nil, err
 	}
+	ds, err := datastore.NewPersister(item.cfg.DSN, true)
+	if err != nil {
+		return nil, err
+	}
+	item.store = ds
 	issuer, err := url.Parse(path.Join(CONST_ISSUER, CONST_AUTOCONFIG_URL))
 	if err != nil {
 		return nil, err
@@ -98,20 +100,11 @@ func (r *EVESSO) OAuth2(scopes ...string) *oauth2.Config {
 	}
 }
 
-func (r *EVESSO) TokenSource(ProfileName, CharacterName string, Scopes ...string) (*ssoTokenSource, error) {
-	profile, err := r.store.FindProfile(uuid.Nil, ProfileName)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			profile = new(datastore.Profile)
-			profile.ProfileName = ProfileName
-			e := r.store.CreateProfile(profile)
-			if e != nil {
-				return nil, errors.Wrapf(err, "creating profile: %w", e)
-			}
-		} else {
-			return nil, err
-		}
-	}
+func (r *EVESSO) Store() datastore.DataStore {
+	return r.store
+}
+
+func (r *EVESSO) TokenSource(profile *datastore.Profile, CharacterName string, Scopes ...string) (*ssoTokenSource, error) {
 	return &ssoTokenSource{
 		t:           nil,
 		ctx:         context.WithValue(r.ctx, oauth2.HTTPClient, r.client),
@@ -129,15 +122,18 @@ func (r *EVESSO) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	encoder := json.NewEncoder(w)
 	code := req.FormValue("code")
 	state := req.FormValue("state")
-	pkce, err := r.store.FindPKCE(state)
+	pkce, err := r.store.GetPKCE(req.Context(), state)
 	if err != nil {
 		//we have no state for this request, discard it
 		return
 	}
-	//delete the state as we are handling it at the moment
-	err = r.store.DeletePKCE(state)
+	profile, err := pkce.GetProfile(req.Context())
 	if err != nil {
-		_ = encoder.Encode(err)
+		return
+	}
+	//delete the state as we are handling it at the moment
+	err = pkce.Destroy(req.Context())
+	if err != nil {
 		return
 	}
 	//check if more than 5 mins passed
@@ -157,56 +153,27 @@ func (r *EVESSO) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		_ = encoder.Encode(err)
 		return
 	}
-
 	//extract character
-	character, err := datastore.ParseToken(token)
+	character, err := profile.CreateCharacter(req.Context(), token)
 	if err != nil {
 		_ = encoder.Encode(err)
 		//token parse failed ?
 		return
 	}
-
-	//getprofile
-	profile, err := pkce.GetProfile()
-	if err != nil {
-		if errors.Is(err, datastore.ErrProfileNotFound) {
-			//there is no profile create new one
-			profile = new(datastore.Profile)
-			profile.ProfileName = pkce.ProfileName
-			err := r.store.CreateProfile(profile)
-			if err != nil {
-				_ = encoder.Encode(err)
-				return
-			}
-		} else {
-			_ = encoder.Encode(err)
-			return
-		}
-	}
-
-	// we have profile now , create the character in the profile
-	err = r.store.CreateCharacter(profile.ID, profile.ProfileName, character)
-	if err != nil {
-		_ = encoder.Encode(err)
-		return
-	}
-
 	_ = encoder.Encode(profile)
 	_ = encoder.Encode(character)
 }
 
-func (r *EVESSO) LocalhostAuth(urlPath string) (*oauth2.Token, error) {
+func (r *EVESSO) LocalhostAuth(urlPath string) error {
 	if err := utils.OSExec(urlPath); err != nil {
-		return nil, err
+		return err
 	}
 
 	callback, err := url.Parse(r.AppConfig().Callback)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	stopChannel := make(chan struct{}, 1)
-
-	outToken := new(oauth2.Token)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -217,7 +184,7 @@ func (r *EVESSO) LocalhostAuth(urlPath string) (*oauth2.Token, error) {
 			}()
 			code := c.Request().FormValue("code")
 			state := c.Request().FormValue("state")
-			pkce, err := r.store.FindPKCE(state)
+			pkce, err := r.store.GetPKCE(c.Request().Context(), state)
 			if err != nil {
 				//we have no state for this request, discard it
 				return &echo.HTTPError{
@@ -226,8 +193,15 @@ func (r *EVESSO) LocalhostAuth(urlPath string) (*oauth2.Token, error) {
 					Internal: err,
 				}
 			}
-
-			err = r.store.DeletePKCE(state)
+			profile, err := pkce.GetProfile(c.Request().Context())
+			if err != nil {
+				return &echo.HTTPError{
+					Code:     http.StatusInternalServerError,
+					Message:  err.Error(),
+					Internal: err,
+				}
+			}
+			err = pkce.Destroy(c.Request().Context())
 			if err != nil {
 				return &echo.HTTPError{
 					Code:     http.StatusInternalServerError,
@@ -257,7 +231,14 @@ func (r *EVESSO) LocalhostAuth(urlPath string) (*oauth2.Token, error) {
 					Internal: err,
 				}
 			}
-			outToken = token
+			_, err = profile.CreateCharacter(c.Request().Context(), token)
+			if err != nil {
+				return &echo.HTTPError{
+					Code:     http.StatusInternalServerError,
+					Message:  err.Error(),
+					Internal: err,
+				}
+			}
 			return c.JSON(http.StatusOK, token)
 		},
 	)
@@ -295,5 +276,5 @@ func (r *EVESSO) LocalhostAuth(urlPath string) (*oauth2.Token, error) {
 		err = e.Shutdown(ctx)
 	}
 
-	return outToken, err
+	return err
 }

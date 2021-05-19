@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/lestrrat-go/jwx/jwk"
-	"github.com/lestrrat-go/jwx/jwt"
-	"golang.org/x/oauth2"
-
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
+	"github.com/lestrrat-go/jwx/jwk"
+	"github.com/lestrrat-go/jwx/jwt"
+	"github.com/pkg/errors"
+	"golang.org/x/oauth2"
 
-	"github.com/ferocious-space/evesso/datastore"
+	"github.com/ferocious-space/evesso/pkg/datastore"
 )
 
 type ssoTokenSource struct {
@@ -26,29 +26,33 @@ type ssoTokenSource struct {
 	store datastore.DataStore
 
 	Profile       *datastore.Profile
+	Character     *datastore.Character
 	CharacterName string
-
-	CharacterId int32
-	owner       string
 }
 
-func (o *ssoTokenSource) JWT(token *oauth2.Token) (jwt.Token, error) {
+func (o *ssoTokenSource) jwt(token *oauth2.Token) (jwt.Token, error) {
 	ks, err := o.jwkfn()
 	if err != nil {
 		return nil, err
 	}
+
 	jt, err := jwt.ParseString(token.AccessToken, jwt.WithKeySet(ks))
 	if err != nil {
 		return nil, err
 	}
-	return jt, o.validate(jt)
+
+	err = o.validate(jt)
+	if err != nil {
+		return nil, err
+	}
+	return jt, nil
 }
 
 func (o *ssoTokenSource) validate(token jwt.Token) error {
 	return jwt.Validate(
 		token,
 		jwt.WithIssuer(CONST_ISSUER), jwt.WithClaimValue("azp", o.oauthConfig.ClientID),
-		jwt.WithSubject(fmt.Sprintf("CHARACTER:EVE:%d", o.CharacterId)), jwt.WithClaimValue("owner", o.owner),
+		jwt.WithSubject(fmt.Sprintf("CHARACTER:EVE:%d", o.Character.CharacterID)), jwt.WithClaimValue("owner", o.Character.Owner),
 	)
 }
 
@@ -57,37 +61,34 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 	defer o.Unlock()
 	if o.t == nil {
 		// get token from store , this should happen only on initial request
-		data, err := o.store.FindCharacter(o.Profile.ID, o.CharacterId, o.CharacterName, o.owner, o.oauthConfig.Scopes)
+		character, err := o.Profile.GetCharacter(o.ctx, 0, o.CharacterName, "", o.oauthConfig.Scopes)
 		if err != nil {
 			return nil, err
 		}
-		o.t = data.Token()
-		o.CharacterId = data.CharacterID
-		o.owner = data.Owner
+		o.t, _ = character.Token()
+		o.Character = character
 	}
 	// get token from refresh token or refresh existing access token
 	l, err := o.oauthConfig.TokenSource(o.ctx, o.t).Token()
 	if err != nil {
+		if o.t != nil {
+			terr := o.Character.UpdateActiveState(o.ctx, false)
+			if terr != nil {
+				return nil, errors.Wrap(terr, err.Error())
+			}
+		}
 		return nil, err
 	}
 	// check if refresh token changed
 	if o.t.RefreshToken != l.RefreshToken {
-		data, err := datastore.ParseToken(l)
-		if err != nil {
-			return nil, err
-		}
-		char, err := o.store.FindCharacter(o.Profile.ID, data.CharacterID, data.CharacterName, data.Owner, data.Scopes)
-		if err != nil {
-			return nil, err
-		}
-		err = char.Update(l.RefreshToken, nil)
+		err := o.Character.UpdateToken(o.ctx, l.RefreshToken)
 		if err != nil {
 			return nil, err
 		}
 	}
 	// verify token if changed
 	if o.t.AccessToken != l.AccessToken {
-		_, err := o.JWT(l)
+		_, err := o.jwt(l)
 		if err != nil {
 			return nil, err
 		}
@@ -106,22 +107,17 @@ func (o *ssoTokenSource) Valid() bool {
 func (o *ssoTokenSource) Save(token *oauth2.Token) error {
 	o.Lock()
 	defer o.Unlock()
-	character, err := datastore.ParseToken(token)
-	if err != nil {
-		return err
-	}
-	err = o.store.CreateCharacter(o.Profile.ID, o.Profile.ProfileName, character)
+	character, err := o.Profile.CreateCharacter(o.ctx, token)
 	if err != nil {
 		return err
 	}
 	o.t = token
-	o.CharacterId = character.CharacterID
-	o.owner = character.Owner
+	o.Character = character
 	return nil
 }
 
 func (o *ssoTokenSource) AuthUrl() (string, error) {
-	pkce, err := o.Profile.MakePKCE()
+	pkce, err := o.Profile.CreatePKCE(o.ctx)
 	if err != nil {
 		return "", err
 	}
@@ -131,21 +127,6 @@ func (o *ssoTokenSource) AuthUrl() (string, error) {
 		oauth2.SetAuthURLParam("code_challange", pkce.CodeChallange),
 		oauth2.SetAuthURLParam("code_challange_method", pkce.CodeChallangeMethod),
 	), nil
-}
-
-func (o *ssoTokenSource) LocalhostCallback(fn func(url string) (*oauth2.Token, error)) error {
-	if !o.Valid() {
-		u, e := o.AuthUrl()
-		if e != nil {
-			return e
-		}
-		t, e := fn(u)
-		if e != nil {
-			return e
-		}
-		return o.Save(t)
-	}
-	return nil
 }
 
 func (o *ssoTokenSource) AuthenticateRequest(request runtime.ClientRequest, _ strfmt.Registry) error {

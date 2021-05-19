@@ -4,3 +4,5 @@
 /cmd/tokengen/pk.pubdist/
 /cmd/tokengen/cache.db
 /example/
+/skynet.db
+/id_rsa

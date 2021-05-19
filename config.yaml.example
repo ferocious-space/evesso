@@ -2,6 +2,8 @@
 key: [[Client ID]]
 secret: [[Secret Key]]
 callback: [[http://localhost:12345/sso/callback]]
+redirect: [[http://localhost:12345/complete]]
+dsn: [[database connection DSN]]
 autocert: false/true
 autocertcache: [[/var/www/.cache]]
 tlscert: [[/var/www/example.com.pem]]

@@ -4,35 +4,20 @@
 package datastore
 
 import (
-	"github.com/google/uuid"
-	"gorm.io/gorm"
+	"context"
 )
 
 type DataStore interface {
 	ProfileStore
-	CharacterStore
-
-	PKCEStore
-
-	gdb() *gorm.DB
 }
 
 type ProfileStore interface {
-	CreateProfile(profile *Profile) error
-	FindProfile(profileID uuid.UUID, profileName string) (*Profile, error)
-	DeleteProfile(profile *Profile) error
-}
+	NewProfile(ctx context.Context, profileName string, data interface{}) (*Profile, error)
+	GetProfile(ctx context.Context, profileName string) (*Profile, error)
+	FindProfile(ctx context.Context, profileName string) (*Profile, error)
+	DeleteProfile(ctx context.Context, profileID string) error
 
-type CharacterStore interface {
-	CreateCharacter(profileID uuid.UUID, profileName string, character *Character) error
-	FindCharacter(profileID uuid.UUID, characterID int32, characterName string, Owner string, Scopes Scopes) (*Character, error)
-	DeleteCharacter(profileID uuid.UUID, profileName string, character *Character) error
-}
-
-type PKCEStore interface {
-	CreatePKCE(profile *Profile) (*PKCE, error)
-	FindPKCE(state string) (*PKCE, error)
-	DeletePKCE(state string) error
+	GetPKCE(ctx context.Context, state string) (*PKCE, error)
 }
 
 func MatchScopes(x, y []string) bool {

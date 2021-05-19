@@ -1,0 +1,3 @@
+drop_index("profile","profile_name")
+
+drop_table("profile")

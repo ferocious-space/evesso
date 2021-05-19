@@ -1,0 +1,29 @@
+create_table("character") {
+    t.Column("id","string",{primary: true})
+
+    t.Column("profile_ref","string",{})
+    t.Column("character_id","integer",{})
+    t.Column("character_name","string",{})
+    t.Column("owner","string",{})
+    t.Column("character_data","json",{"null": true})
+    t.Column("refresh_token","string",{})
+    t.Column("scopes","jsonb",{})
+
+    t.Column("active","bool",{})
+
+    t.Column("created_at","timestamp",{})
+    t.Column("updated_at","timestamp",{})
+}
+
+add_index("character",["profile_ref","character_id","character_name","owner","scopes"],{"unique": true})
+
+add_index("character","character_id")
+add_index("character","character_name")
+add_index("character","owner")
+add_index("character","scopes")
+
+add_foreign_key("character", "profile_ref", {"profile": ["id"]}, {
+    "name": "character_profile_fk",
+    "on_delete": "CASCADE",
+    "on_update": "CASCADE",
+})

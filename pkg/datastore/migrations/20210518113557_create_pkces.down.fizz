@@ -1,0 +1,5 @@
+drop_index("pkce","state")
+
+drop_foreign_key("pkce","pkce_profile_fk",{"if_exists": true})
+
+drop_table("pkce")

@@ -11,19 +11,23 @@ import (
 
 type appConfig struct {
 	//ESI API Key
-	Key string
+	Key string `json:"key"`
 	//ESI API Secret
-	Secret string
+	Secret string `json:"secret"`
 	//Callback
-	Callback string
+	Callback string `json:"callback"`
+	//Redirect to URL after successful completion of authentication
+	Redirect string `json:"redirect"`
+	//DSN database connection string
+	DSN string `json:"dsn" yaml:"dsn"`
 	//Autocert enable/disable letsencrypt
-	Autocert bool
+	Autocert bool `json:"autocert"`
 	//AutocertCache location to save certs if letsencrypt is enabled
-	AutocertCache string
+	AutocertCache string `json:"autocertcache"`
 	//TLSCert path to pem Cert file to use for https if letsencrypt is disabled
-	TLSCert string
+	TLSCert string `json:"tlscert"`
 	//TLSKey path to pem Key file to use for https if letsencrypt is disabled
-	TLSKey string
+	TLSKey string `json:"tlskey"`
 }
 
 func (c *appConfig) Load(path string) error {

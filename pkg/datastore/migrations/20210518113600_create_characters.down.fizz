@@ -1,0 +1,10 @@
+add_index("character",["profile_ref","character_id","character_name","owner","scopes"],{"unique": true})
+
+drop_index("character","character_id")
+drop_index("character","character_name")
+drop_index("character","owner")
+drop_index("character","scopes")
+
+drop_foreign_key("character","character_profile_fk",{"if_exists": true})
+
+drop_table("character")

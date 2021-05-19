@@ -1,0 +1,10 @@
+create_table("profile") {
+    t.Column("id","string",{primary: true})
+    t.Column("profile_name","string",{})
+    t.Column("profile_data","json",{})
+
+    t.Column("created_at","timestamp",{})
+    t.Column("updated_at","timestamp",{})
+}
+
+add_index("profile","profile_name",{"unique": true})
