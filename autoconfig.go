@@ -154,14 +154,13 @@ func (r *EVESSO) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	//extract character
-	character, err := profile.CreateCharacter(req.Context(), token)
+	_, err = profile.CreateCharacter(req.Context(), token)
 	if err != nil {
 		_ = encoder.Encode(err)
 		//token parse failed ?
 		return
 	}
-	_ = encoder.Encode(profile)
-	_ = encoder.Encode(character)
+	http.Redirect(w, req, r.AppConfig().Redirect, http.StatusFound)
 }
 
 func (r *EVESSO) LocalhostAuth(urlPath string) error {
