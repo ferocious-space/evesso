@@ -1,4 +1,4 @@
-create_table("pkce") {
+create_table("pkces") {
     t.Column("id","string",{primary: true})
 
     t.Column("profile_ref","string",{})
@@ -12,9 +12,9 @@ create_table("pkce") {
     t.Column("updated_at","timestamp",{})
 }
 
-add_index("pkce","state",{"unique": true})
+add_index("pkces","state",{"unique": true})
 
-add_foreign_key("pkce", "profile_ref", {"profile": ["id"]}, {
+add_foreign_key("pkces", "profile_ref", {"profiles": ["id"]}, {
     "name": "pkce_profile_fk",
     "on_delete": "CASCADE",
     "on_update": "CASCADE",

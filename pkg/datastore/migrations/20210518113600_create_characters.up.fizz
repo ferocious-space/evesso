@@ -1,4 +1,4 @@
-create_table("character") {
+create_table("characters") {
     t.Column("id","string",{primary: true})
 
     t.Column("profile_ref","string",{})
@@ -15,14 +15,14 @@ create_table("character") {
     t.Column("updated_at","timestamp",{})
 }
 
-add_index("character",["profile_ref","character_id","character_name","owner","scopes"],{"unique": true})
+add_index("characters",["profile_ref","character_id","character_name","owner","scopes"],{"unique": true})
 
-add_index("character","character_id")
-add_index("character","character_name")
-add_index("character","owner")
-add_index("character","scopes")
+add_index("characters","character_id")
+add_index("characters","character_name")
+add_index("characters","owner")
+add_index("characters","scopes")
 
-add_foreign_key("character", "profile_ref", {"profile": ["id"]}, {
+add_foreign_key("characters", "profile_ref", {"profiles": ["id"]}, {
     "name": "character_profile_fk",
     "on_delete": "CASCADE",
     "on_update": "CASCADE",

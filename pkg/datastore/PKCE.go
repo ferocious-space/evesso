@@ -33,10 +33,6 @@ type PKCE struct {
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
 
-func (p *PKCE) TableName() string {
-	return "pkce"
-}
-
 func (p *PKCE) GetProfile(ctx context.Context) (*Profile, error) {
 	return p.persister.GetProfile(ctx, p.ProfileReference)
 }

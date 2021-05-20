@@ -18,6 +18,7 @@ type ProfileStore interface {
 	DeleteProfile(ctx context.Context, profileID string) error
 
 	GetPKCE(ctx context.Context, state string) (*PKCE, error)
+	CleanPKCE(ctx context.Context) error
 }
 
 func MatchScopes(x, y []string) bool {

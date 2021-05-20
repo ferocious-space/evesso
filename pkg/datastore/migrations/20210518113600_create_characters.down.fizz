@@ -1,10 +1,10 @@
-add_index("character",["profile_ref","character_id","character_name","owner","scopes"],{"unique": true})
+add_index("characters",["profile_ref","character_id","character_name","owner","scopes"],{"unique": true})
 
-drop_index("character","character_id")
-drop_index("character","character_name")
-drop_index("character","owner")
-drop_index("character","scopes")
+drop_index("characters","character_id")
+drop_index("characters","character_name")
+drop_index("characters","owner")
+drop_index("characters","scopes")
 
-drop_foreign_key("character","character_profile_fk",{"if_exists": true})
+drop_foreign_key("characters","character_profile_fk",{"if_exists": true})
 
-drop_table("character")
+drop_table("characters")

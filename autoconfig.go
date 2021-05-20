@@ -114,7 +114,22 @@ func (r *EVESSO) TokenSource(profile *datastore.Profile, CharacterName string, S
 		},
 		store:         r.store,
 		Profile:       profile,
-		CharacterName: CharacterName,
+		characterName: CharacterName,
+	}, nil
+}
+
+func (r *EVESSO) CharacterSource(character *datastore.Character) (*ssoTokenSource, error) {
+	return &ssoTokenSource{
+		t:           nil,
+		ctx:         context.WithValue(r.ctx, oauth2.HTTPClient, r.client),
+		oauthConfig: r.OAuth2(character.Scopes...),
+		jwkfn: func() (jwk.Set, error) {
+			return r.refresher.Fetch(r.ctx, r.JwksURI)
+		},
+		store:         r.store,
+		Profile:       nil,
+		Character:     character,
+		characterName: character.CharacterName,
 	}, nil
 }
 
@@ -138,7 +153,7 @@ func (r *EVESSO) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	//check if more than 5 mins passed
 	if time.Since(pkce.Time()) > 5*time.Minute {
-		_ = encoder.Encode("PKCE timeout")
+		_ = encoder.Encode("authentication timeout, please try again")
 		return
 	}
 
@@ -160,6 +175,7 @@ func (r *EVESSO) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		//token parse failed ?
 		return
 	}
+	_ = r.store.CleanPKCE(context.TODO())
 	http.Redirect(w, req, r.AppConfig().Redirect, http.StatusFound)
 }
 
@@ -173,6 +189,7 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 		return err
 	}
 	stopChannel := make(chan struct{}, 1)
+	errChannel := make(chan error, 1)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -238,6 +255,7 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 					Internal: err,
 				}
 			}
+			_ = r.store.CleanPKCE(context.TODO())
 			return c.JSON(http.StatusOK, token)
 		},
 	)
@@ -263,12 +281,15 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil
 		}
+		errChannel <- err
 	}()
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Minute)
 	defer cancel()
 
 	select {
+	case err := <-errChannel:
+		return err
 	case <-stopChannel:
 		err = e.Shutdown(ctx)
 	case <-ctx.Done():

@@ -183,7 +183,7 @@ func (x *Persister) GetProfile(ctx context.Context, profileID string) (*Profile,
 	profile.persister = x
 	return profile, x.tx(
 		ctx, func(ctx context.Context, c *pop.Connection) error {
-			return HandleError(x.Connection(ctx).WithContext(ctx).Select("profile.*").Find(profile, profileID))
+			return HandleError(x.Connection(ctx).WithContext(ctx).Find(profile, profileID))
 		},
 	)
 }
@@ -193,7 +193,7 @@ func (x *Persister) FindProfile(ctx context.Context, profileName string) (*Profi
 	profile.persister = x
 	return profile, x.tx(
 		ctx, func(ctx context.Context, c *pop.Connection) error {
-			return HandleError(x.Connection(ctx).WithContext(ctx).Select("profile.*").Where("profile_name = ?", profileName).First(profile))
+			return HandleError(x.Connection(ctx).WithContext(ctx).Where("profile_name = ?", profileName).First(profile))
 		},
 	)
 }
@@ -211,9 +211,28 @@ func (x *Persister) GetPKCE(ctx context.Context, state string) (*PKCE, error) {
 	pkce.persister = x
 	return pkce, x.tx(
 		ctx, func(ctx context.Context, c *pop.Connection) error {
-			err := HandleError(x.Connection(ctx).Select("pkce.*").Where("state = ?", state).Where("created_at > ?", time.Now().Add(-5*time.Minute)).First(pkce))
+			err := HandleError(x.Connection(ctx).Where("state = ?", state).Where("created_at > ?", time.Now().Add(-5*time.Minute)).First(pkce))
 			if err != nil {
 				return err
+			}
+			return nil
+		},
+	)
+}
+
+func (x *Persister) CleanPKCE(ctx context.Context) error {
+	var pkces []PKCE
+	return x.tx(
+		ctx, func(ctx context.Context, c *pop.Connection) error {
+			err := x.Connection(ctx).Where("created_at < ?", time.Now().Add(-(5*time.Minute + 1*time.Second))).All(&pkces)
+			if err != nil {
+				return err
+			}
+			for _, p := range pkces {
+				err := p.Destroy(ctx)
+				if err != nil {
+					return err
+				}
 			}
 			return nil
 		},

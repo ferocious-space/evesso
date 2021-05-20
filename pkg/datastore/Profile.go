@@ -62,10 +62,6 @@ func (j JSONData) Value() (driver.Value, error) {
 	return json.Marshal(j.data)
 }
 
-func (*Profile) TableName() string {
-	return "profile"
-}
-
 func (p *Profile) GetData() (interface{}, error) {
 	if p.ProfileData != nil {
 		return p.ProfileData.data, nil
@@ -95,7 +91,7 @@ func (p *Profile) GetCharacter(ctx context.Context, characterID int32, character
 	character.persister = p.persister
 	return character, p.persister.tx(
 		ctx, func(ctx context.Context, c *pop.Connection) error {
-			query := p.persister.Connection(ctx).Select("character.*")
+			query := p.persister.Connection(ctx).Q()
 			if characterID > 0 {
 				query = query.Where("character_id = ?", characterID)
 			}
@@ -211,10 +207,6 @@ type Character struct {
 
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
-}
-
-func (*Character) TableName() string {
-	return "character"
 }
 
 func (c *Character) UpdateToken(ctx context.Context, RefreshToken string) error {

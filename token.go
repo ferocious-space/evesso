@@ -27,7 +27,7 @@ type ssoTokenSource struct {
 
 	Profile       *datastore.Profile
 	Character     *datastore.Character
-	CharacterName string
+	characterName string
 }
 
 func (o *ssoTokenSource) jwt(token *oauth2.Token) (jwt.Token, error) {
@@ -61,12 +61,22 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 	defer o.Unlock()
 	if o.t == nil {
 		// get token from store , this should happen only on initial request
-		character, err := o.Profile.GetCharacter(o.ctx, 0, o.CharacterName, "", o.oauthConfig.Scopes)
-		if err != nil {
-			return nil, err
+		if o.Character == nil {
+			character, err := o.Profile.GetCharacter(o.ctx, 0, o.characterName, "", o.oauthConfig.Scopes)
+			if err != nil {
+				return nil, err
+			}
+			o.t, _ = character.Token()
+			o.Character = character
+		} else {
+			o.t, _ = o.Character.Token()
+			profile, err := o.store.GetProfile(o.ctx, o.Character.ProfileReference)
+			if err != nil {
+				return nil, err
+			}
+			o.Profile = profile
 		}
-		o.t, _ = character.Token()
-		o.Character = character
+
 	}
 	// get token from refresh token or refresh existing access token
 	l, err := o.oauthConfig.TokenSource(o.ctx, o.t).Token()

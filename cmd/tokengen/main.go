@@ -16,6 +16,7 @@ import (
 
 func main() {
 	pop.Color = false
+	pop.Debug = true
 	fmt.Println(pop.AvailableDialects)
 	logger := stdr.NewWithOptions(log.New(os.Stderr, " ", log.LstdFlags), stdr.Options{LogCaller: stdr.All, Depth: 1})
 	newContext := logr.NewContext(context.Background(), logger)
@@ -30,6 +31,11 @@ func main() {
 		if err != nil {
 			log.Fatalln(err)
 		}
+	}
+	err = config.Store().CleanPKCE(context.TODO())
+	if err != nil {
+		log.Fatalln(err)
+		return
 	}
 	source, err := config.TokenSource(defaultProfile, "Ferocious Bite", evesso.ALL_SCOPES...)
 	if err != nil {
