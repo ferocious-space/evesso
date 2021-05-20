@@ -213,7 +213,7 @@ func (c *Character) UpdateToken(ctx context.Context, RefreshToken string) error 
 	c.RefreshToken = RefreshToken
 	return c.persister.tx(
 		ctx, func(ctx context.Context, _ *pop.Connection) error {
-			return HandleError(c.persister.Connection(ctx).Update(c, "character_data", "active"))
+			return HandleError(c.persister.Connection(ctx).Update(c, "character_data", "active", "profile_ref", "character_id", "character_name", "owner", "scopes"))
 		},
 	)
 }
@@ -231,7 +231,7 @@ func (c *Character) UpdateData(ctx context.Context, characterData interface{}) e
 	c.CharacterData = NewJSONData(characterData)
 	err := c.persister.tx(
 		ctx, func(ctx context.Context, _ *pop.Connection) error {
-			return HandleError(c.persister.Connection(ctx).Update(c, "active", "refresh_token"))
+			return HandleError(c.persister.Connection(ctx).Update(c, "active", "refresh_token", "profile_ref", "character_id", "character_name", "owner", "scopes"))
 		},
 	)
 	if err != nil {
@@ -248,7 +248,7 @@ func (c *Character) UpdateActiveState(ctx context.Context, active bool) error {
 	c.Active = active
 	err := c.persister.tx(
 		ctx, func(ctx context.Context, _ *pop.Connection) error {
-			return HandleError(c.persister.Connection(ctx).Update(c, "character_data", "refresh_token"))
+			return HandleError(c.persister.Connection(ctx).Update(c, "character_data", "refresh_token", "profile_ref", "character_id", "character_name", "owner", "scopes"))
 		},
 	)
 	if err != nil {
