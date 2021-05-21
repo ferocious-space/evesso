@@ -4,18 +4,23 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"fmt"
 	"time"
 
-	"github.com/gobuffalo/pop/v5"
+	"github.com/go-logr/logr"
 	"github.com/gofrs/uuid"
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/jackc/pgx/stdlib"
+	"github.com/jmoiron/sqlx"
 	"github.com/pkg/errors"
 
-	"github.com/ferocious-space/evesso/pkg/migrationbox"
+	"github.com/ferocious-space/evesso/internal/embedfs"
 )
 
 const transactionSSOKey = "transactionSSOKey"
 
-//go:embed migrations/*
+//go:embed migrations/*.sql
 var migrations embed.FS
 
 type Transactional interface {
@@ -52,115 +57,121 @@ func MaybeRollackTx(ctx context.Context, storage interface{}) error {
 }
 
 type Persister struct {
-	conn *pop.Connection
-	mb   *pop.Migrator
+	sqlx       *sqlx.DB
+	migrations *migrate.Migrate
+	//mb   *pop.Migrator
 }
 
 func (x *Persister) BeginTX(ctx context.Context) (context.Context, error) {
-	_, ok := ctx.Value(transactionSSOKey).(*pop.Connection)
+	_, ok := ctx.Value(transactionSSOKey).(*sqlx.Tx)
 	if ok {
 		return ctx, ErrTranscationOpen
 	}
-	tx, err := x.conn.Store.TransactionContextOptions(
+	tx, err := x.sqlx.BeginTxx(
 		ctx, &sql.TxOptions{
 			Isolation: sql.LevelRepeatableRead,
 			ReadOnly:  false,
 		},
 	)
-	c := &pop.Connection{
-		TX:      tx,
-		Store:   tx,
-		ID:      uuid.Must(uuid.NewV4()).String(),
-		Dialect: x.conn.Dialect,
-	}
-	return context.WithValue(ctx, transactionSSOKey, c), err
+	return context.WithValue(ctx, transactionSSOKey, tx), err
 }
 func (x *Persister) Commit(ctx context.Context) error {
-	c, ok := ctx.Value(transactionSSOKey).(*pop.Connection)
-	if !ok || c.TX == nil {
+	c, ok := ctx.Value(transactionSSOKey).(*sqlx.Tx)
+	if !ok || c == nil {
 		return errors.WithStack(ErrNoTranscationOpen)
 	}
 
-	return c.TX.Commit()
+	return c.Commit()
 }
 func (x *Persister) Rollback(ctx context.Context) error {
-	c, ok := ctx.Value(transactionSSOKey).(*pop.Connection)
-	if !ok || c.TX == nil {
+	c, ok := ctx.Value(transactionSSOKey).(*sqlx.Tx)
+	if !ok || c == nil {
 		return errors.WithStack(ErrNoTranscationOpen)
 	}
 
-	return c.TX.Rollback()
+	return c.Rollback()
 }
-func (x *Persister) Connection(ctx context.Context) *pop.Connection {
-	if c, ok := ctx.Value(transactionSSOKey).(*pop.Connection); ok {
-		return c.WithContext(ctx)
+func (x *Persister) Connection(ctx context.Context) (*sqlx.Tx, error) {
+	if c, ok := ctx.Value(transactionSSOKey).(*sqlx.Tx); ok {
+		return c, nil
 	}
-	return x.conn.WithContext(ctx)
+	resultCtx, err := x.BeginTX(ctx)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	return x.Connection(resultCtx)
 }
 
-func (x *Persister) tx(ctx context.Context, f func(ctx context.Context, c *pop.Connection) error) error {
+func (x *Persister) tx(ctx context.Context, f func(ctx context.Context, tx *sqlx.Tx) error) error {
 	var err error
 	isNested := true
-	c, ok := ctx.Value(transactionSSOKey).(*pop.Connection)
+	c, ok := ctx.Value(transactionSSOKey).(*sqlx.Tx)
 	if !ok {
 		isNested = false
-		c, err = x.conn.WithContext(ctx).NewTransaction()
+		c, err = x.Connection(ctx)
 		if err != nil {
+			logr.FromContextOrDiscard(ctx).Error(err, "connection")
 			return errors.WithStack(err)
 		}
 	}
 
 	if err := f(context.WithValue(ctx, transactionSSOKey, c), c); err != nil {
 		if !isNested {
-			if err := c.TX.Rollback(); err != nil {
+			if err := c.Rollback(); err != nil {
+				logr.FromContextOrDiscard(ctx).Error(err, "nested transaction")
 				return errors.WithStack(err)
 			}
 		}
-		return err
+		logr.FromContextOrDiscard(ctx).Error(err, "transaction")
+		return HandleError(err)
 	}
 	if !isNested {
-		return errors.WithStack(c.TX.Commit())
+		return errors.WithStack(c.Commit())
 	}
 	return nil
 }
 
-func NewPersister(dsn string, migrate bool) (*Persister, error) {
-	c, err := pop.NewConnection(
-		&pop.ConnectionDetails{
-			URL:             dsn,
-			Pool:            50,
-			ConnMaxLifetime: 300,
-			ConnMaxIdleTime: 180,
-		},
-	)
-	if err != nil {
-		return nil, err
-	}
-	data := new(Persister)
-	mb, err := migrationbox.NewMigrationBox(migrations, c)
-	if err != nil {
-		return nil, err
-	}
-	data.conn = c
-	data.mb = mb
+type migrationLogger struct {
+	log     logr.Logger
+	verbose bool
+}
 
-	err = pop.CreateDB(data.conn)
-	if err == nil {
-		err = data.mb.CreateSchemaMigrations()
-		if err != nil {
-			return nil, err
-		}
-		err = data.mb.Up()
-		if err != nil {
+func newMigrationLogger(log logr.Logger, verbose bool) *migrationLogger {
+	return &migrationLogger{log: log, verbose: verbose}
+}
+
+func (m *migrationLogger) Printf(format string, v ...interface{}) {
+	m.log.Info(fmt.Sprintf(format, v))
+}
+
+func (m *migrationLogger) Verbose() bool {
+	return m.verbose
+}
+
+func NewPersister(ctx context.Context, dsn string, migrateForce bool) (*Persister, error) {
+	var err error
+
+	driver, err := embedfs.New(migrations, "migrations")
+	if err != nil {
+		return nil, err
+	}
+
+	data := new(Persister)
+	data.migrations, err = migrate.NewWithSourceInstance("embedFS", driver, dsn)
+	if err != nil {
+		return nil, err
+	}
+	data.sqlx, err = sqlx.Open("pgx", dsn)
+	if err != nil {
+		return nil, err
+	}
+	err = data.migrations.Migrate(1)
+	if err != nil {
+		if !errors.Is(err, migrate.ErrNoChange) {
 			return nil, err
 		}
 	}
-	if migrate {
-		err = data.mb.Up()
-		if err != nil {
-			return nil, err
-		}
-	}
+	data.migrations.Log = newMigrationLogger(logr.FromContextOrDiscard(ctx), true)
 	return data, nil
 }
 
@@ -169,49 +180,14 @@ func (x *Persister) NewProfile(ctx context.Context, profileName string, data int
 	profile.persister = x
 	profile.ID = uuid.Must(uuid.NewV4()).String()
 	profile.ProfileName = profileName
-	profile.ProfileData = NewJSONData(data)
+	profile.CreatedAt = time.Now()
+	profile.UpdatedAt = time.Now()
 
 	return profile, x.tx(
-		ctx, func(ctx context.Context, c *pop.Connection) error {
-			return HandleError(x.Connection(ctx).WithContext(ctx).Create(profile))
-		},
-	)
-}
-
-func (x *Persister) GetProfile(ctx context.Context, profileID string) (*Profile, error) {
-	profile := new(Profile)
-	profile.persister = x
-	return profile, x.tx(
-		ctx, func(ctx context.Context, c *pop.Connection) error {
-			return HandleError(x.Connection(ctx).WithContext(ctx).Find(profile, profileID))
-		},
-	)
-}
-
-func (x *Persister) FindProfile(ctx context.Context, profileName string) (*Profile, error) {
-	profile := new(Profile)
-	profile.persister = x
-	return profile, x.tx(
-		ctx, func(ctx context.Context, c *pop.Connection) error {
-			return HandleError(x.Connection(ctx).WithContext(ctx).Where("profile_name = ?", profileName).First(profile))
-		},
-	)
-}
-
-func (x *Persister) DeleteProfile(ctx context.Context, profileID string) error {
-	return x.tx(
-		ctx, func(ctx context.Context, c *pop.Connection) error {
-			return HandleError(x.Connection(ctx).WithContext(ctx).Destroy(&Profile{ID: profileID}))
-		},
-	)
-}
-
-func (x *Persister) GetPKCE(ctx context.Context, state string) (*PKCE, error) {
-	pkce := new(PKCE)
-	pkce.persister = x
-	return pkce, x.tx(
-		ctx, func(ctx context.Context, c *pop.Connection) error {
-			err := HandleError(x.Connection(ctx).Where("state = ?", state).Where("created_at > ?", time.Now().Add(-5*time.Minute)).First(pkce))
+		ctx, func(ctx context.Context, tx *sqlx.Tx) error {
+			q := `INSERT INTO profiles (id, profile_name, created_at, updated_at) values (:id,:profile_name, :created_at, :updated_at)`
+			logr.FromContextOrDiscard(ctx).Info(q)
+			_, err := tx.NamedExecContext(ctx, q, profile)
 			if err != nil {
 				return err
 			}
@@ -220,20 +196,67 @@ func (x *Persister) GetPKCE(ctx context.Context, state string) (*PKCE, error) {
 	)
 }
 
-func (x *Persister) CleanPKCE(ctx context.Context) error {
-	var pkces []PKCE
+func (x *Persister) GetProfile(ctx context.Context, profileID string) (*Profile, error) {
+	profile := new(Profile)
+	profile.persister = x
+	return profile, x.tx(
+		ctx, func(ctx context.Context, tx *sqlx.Tx) error {
+			q := tx.Rebind("SELECT id, profile_name, created_at, updated_at FROM profiles WHERE id = ?")
+			logr.FromContextOrDiscard(ctx).Info(q, "id", profileID)
+			return tx.QueryRowxContext(ctx, q, profileID).StructScan(profile)
+		},
+	)
+}
+
+func (x *Persister) FindProfile(ctx context.Context, profileName string) (*Profile, error) {
+	profile := new(Profile)
+	profile.persister = x
+	return profile, x.tx(
+		ctx, func(ctx context.Context, tx *sqlx.Tx) error {
+			q := tx.Rebind(`SELECT id,profile_name,created_at,updated_at from profiles where profile_name = ?`)
+			logr.FromContextOrDiscard(ctx).Info(q, "name", profileName)
+			return tx.QueryRowxContext(ctx, q, profileName).StructScan(profile)
+		},
+	)
+}
+
+func (x *Persister) DeleteProfile(ctx context.Context, profileID string) error {
 	return x.tx(
-		ctx, func(ctx context.Context, c *pop.Connection) error {
-			err := x.Connection(ctx).Where("created_at < ?", time.Now().Add(-(5*time.Minute + 1*time.Second))).All(&pkces)
+		ctx, func(ctx context.Context, tx *sqlx.Tx) error {
+			q := tx.Rebind(`DELETE FROM profiles where id = ?`)
+			logr.FromContextOrDiscard(ctx).Info(q, "id", profileID)
+			_, err := tx.ExecContext(ctx, q, profileID)
+			return err
+		},
+	)
+}
+
+func (x *Persister) GetPKCE(ctx context.Context, state string) (*PKCE, error) {
+	pkce := new(PKCE)
+	pkce.persister = x
+	return pkce, x.tx(
+		ctx, func(ctx context.Context, tx *sqlx.Tx) error {
+			q := tx.Rebind("SELECT id, profile_ref, state, code_verifier, code_challange, code_challange_method, created_at from pkces where state = ? and created_at > ? limit 1")
+			logr.FromContextOrDiscard(ctx).Info(q, "state", state)
+			return tx.QueryRowxContext(ctx, q, state, time.Now().Add(-5*time.Minute)).StructScan(pkce)
+		},
+	)
+}
+
+func (x *Persister) CleanPKCE(ctx context.Context) error {
+	return x.tx(
+		ctx, func(ctx context.Context, tx *sqlx.Tx) error {
+			q := tx.Rebind(`delete from pkces where created_at < ?`)
+			logr.FromContextOrDiscard(ctx).Info(q)
+			rows, err := tx.ExecContext(ctx, q, time.Now().Add(-(5*time.Minute + 1*time.Second)))
 			if err != nil {
 				return err
 			}
-			for _, p := range pkces {
-				err := p.Destroy(ctx)
-				if err != nil {
-					return err
-				}
+			affected, err := rows.RowsAffected()
+			if err != nil {
+				return err
 			}
+			logr.FromContextOrDiscard(ctx).Info(q, "deleted", affected)
 			return nil
 		},
 	)

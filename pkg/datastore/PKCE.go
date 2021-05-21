@@ -7,8 +7,9 @@ import (
 	"encoding/base64"
 	"time"
 
-	"github.com/gobuffalo/pop/v5"
+	"github.com/go-logr/logr"
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	"github.com/pkg/errors"
 )
 
@@ -23,14 +24,14 @@ type PKCE struct {
 
 	ID string `json:"id" db:"id"`
 
-	ProfileReference    string `json:"profile_id" db:"profile_ref"`
+	ProfileReference string `json:"profile_id" db:"profile_ref"`
+
 	State               string `json:"state" db:"state"`
 	CodeVerifier        string `json:"code_verifier" db:"code_verifier"`
 	CodeChallange       string `json:"code_challange" db:"code_challange"`
 	CodeChallangeMethod string `json:"code_challange_method" db:"code_challange_method"`
 
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
 
 func (p *PKCE) GetProfile(ctx context.Context) (*Profile, error) {
@@ -39,8 +40,11 @@ func (p *PKCE) GetProfile(ctx context.Context) (*Profile, error) {
 
 func (p *PKCE) Destroy(ctx context.Context) error {
 	return p.persister.tx(
-		ctx, func(ctx context.Context, c *pop.Connection) error {
-			return HandleError(p.persister.Connection(ctx).Destroy(p))
+		ctx, func(ctx context.Context, tx *sqlx.Tx) error {
+			q := tx.Rebind("delete from pkces where id = ?")
+			logr.FromContextOrDiscard(ctx).Info(q, "id", p.ID, "profile", p.ProfileReference)
+			_, err := tx.ExecContext(ctx, q, p.ID)
+			return err
 		},
 	)
 }
@@ -67,5 +71,6 @@ func MakePKCE(profile *Profile) *PKCE {
 		CodeVerifier:        encodedVerifier,
 		CodeChallange:       challange,
 		CodeChallangeMethod: "S256",
+		CreatedAt:           time.Now(),
 	}
 }

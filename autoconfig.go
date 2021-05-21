@@ -10,6 +10,7 @@ import (
 	"path"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/labstack/echo/v4"
 	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/pkg/errors"
@@ -52,7 +53,7 @@ func AutoConfig(ctx context.Context, cfgpath string, client *http.Client) (*EVES
 	if err := item.cfg.Load(cfgpath); err != nil {
 		return nil, err
 	}
-	ds, err := datastore.NewPersister(item.cfg.DSN, true)
+	ds, err := datastore.NewPersister(ctx, item.cfg.DSN, false)
 	if err != nil {
 		return nil, err
 	}
@@ -198,9 +199,12 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 			defer func() {
 				stopChannel <- struct{}{}
 			}()
+
+			ctx := logr.NewContext(c.Request().Context(), logr.FromContextOrDiscard(r.ctx))
+
 			code := c.Request().FormValue("code")
 			state := c.Request().FormValue("state")
-			pkce, err := r.store.GetPKCE(c.Request().Context(), state)
+			pkce, err := r.store.GetPKCE(ctx, state)
 			if err != nil {
 				//we have no state for this request, discard it
 				return &echo.HTTPError{
@@ -209,7 +213,7 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 					Internal: err,
 				}
 			}
-			profile, err := pkce.GetProfile(c.Request().Context())
+			profile, err := pkce.GetProfile(ctx)
 			if err != nil {
 				return &echo.HTTPError{
 					Code:     http.StatusInternalServerError,
@@ -217,7 +221,7 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 					Internal: err,
 				}
 			}
-			err = pkce.Destroy(c.Request().Context())
+			err = pkce.Destroy(ctx)
 			if err != nil {
 				return &echo.HTTPError{
 					Code:     http.StatusInternalServerError,
@@ -235,7 +239,7 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 			}
 
 			token, err := r.OAuth2().Exchange(
-				r.ctx,
+				ctx,
 				code,
 				oauth2.SetAuthURLParam("code_verifier", pkce.CodeVerifier),
 			)
@@ -247,7 +251,7 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 					Internal: err,
 				}
 			}
-			_, err = profile.CreateCharacter(c.Request().Context(), token)
+			_, err = profile.CreateCharacter(ctx, token)
 			if err != nil {
 				return &echo.HTTPError{
 					Code:     http.StatusInternalServerError,
@@ -255,7 +259,7 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 					Internal: err,
 				}
 			}
-			_ = r.store.CleanPKCE(context.TODO())
+			_ = r.store.CleanPKCE(ctx)
 			return c.JSON(http.StatusOK, token)
 		},
 	)

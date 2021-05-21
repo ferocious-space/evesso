@@ -8,31 +8,28 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/stdr"
-	"github.com/gobuffalo/pop/v5"
 
 	"github.com/ferocious-space/evesso"
 	"github.com/ferocious-space/evesso/internal/utils"
 )
 
 func main() {
-	pop.Color = false
-	pop.Debug = true
-	fmt.Println(pop.AvailableDialects)
-	logger := stdr.NewWithOptions(log.New(os.Stderr, " ", log.LstdFlags), stdr.Options{LogCaller: stdr.All, Depth: 1})
+
+	logger := stdr.NewWithOptions(log.New(os.Stderr, " ", log.LstdFlags), stdr.Options{LogCaller: stdr.All})
 	newContext := logr.NewContext(context.Background(), logger)
 	config, err := evesso.AutoConfig(newContext, "./config.yaml", nil)
 	if err != nil {
 		log.Fatalln(err)
 		return
 	}
-	defaultProfile, err := config.Store().FindProfile(context.TODO(), "default")
+	defaultProfile, err := config.Store().FindProfile(newContext, "default")
 	if err != nil {
-		defaultProfile, err = config.Store().NewProfile(context.TODO(), "default", nil)
+		defaultProfile, err = config.Store().NewProfile(newContext, "default", nil)
 		if err != nil {
 			log.Fatalln(err)
 		}
 	}
-	err = config.Store().CleanPKCE(context.TODO())
+	err = config.Store().CleanPKCE(newContext)
 	if err != nil {
 		log.Fatalln(err)
 		return
