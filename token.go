@@ -30,25 +30,25 @@ type ssoTokenSource struct {
 	characterName string
 }
 
-func (o *ssoTokenSource) GetCharacterID() *int32 {
+func (o *ssoTokenSource) GetCharacterID() int32 {
 	if o.character != nil {
-		return &o.character.CharacterID
+		return o.character.CharacterID
 	}
-	return nil
+	return 0
 }
 
-func (o *ssoTokenSource) GetCharacterName() *string {
+func (o *ssoTokenSource) GetCharacterName() string {
 	if o.character != nil {
-		return &o.character.CharacterName
+		return o.character.CharacterName
 	}
-	return nil
+	return ""
 }
 
-func (o *ssoTokenSource) GetCharacterOwner() *string {
+func (o *ssoTokenSource) GetCharacterOwner() string {
 	if o.character != nil {
-		return &o.character.Owner
+		return o.character.Owner
 	}
-	return nil
+	return ""
 }
 
 func (o *ssoTokenSource) GetTokenScopes() datastore.Scopes {
@@ -134,6 +134,9 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 }
 
 func (o *ssoTokenSource) Valid() bool {
+	if o.character == nil || o.profileID == "" || o.characterName == "" {
+		return false
+	}
 	if _, err := o.Token(); err != nil {
 		return false
 	}
