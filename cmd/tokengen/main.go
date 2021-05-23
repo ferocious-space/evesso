@@ -34,7 +34,7 @@ func main() {
 		log.Fatalln(err)
 		return
 	}
-	source, err := config.TokenSource(defaultProfile, "Ferocious Bite", evesso.ALL_SCOPES...)
+	source, err := config.TokenSource(defaultProfile.ProfileName, "Ferocious Bite", evesso.ALL_SCOPES...)
 	if err != nil {
 		log.Fatalln(err)
 		return

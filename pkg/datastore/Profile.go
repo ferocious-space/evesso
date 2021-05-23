@@ -61,6 +61,10 @@ func (p *Profile) GetCharacter(ctx context.Context, characterID int32, character
 			}
 			query["profile_ref"] = p.ID
 			queryParams = append(queryParams, `profile_ref = :profile_ref`)
+
+			query["scopes"] = Scopes
+			queryParams = append(queryParams, `scopes = :scopes`)
+
 			query["active"] = true
 			queryParams = append(queryParams, `active = :active`)
 

@@ -134,9 +134,6 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 }
 
 func (o *ssoTokenSource) Valid() bool {
-	if o.character == nil || o.profileID == "" || o.characterName == "" {
-		return false
-	}
 	if _, err := o.Token(); err != nil {
 		return false
 	}
