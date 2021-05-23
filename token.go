@@ -88,7 +88,7 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 	o.Lock()
 	defer o.Unlock()
 	if o.t == nil {
-		profile, err := o.store.FindProfile(o.ctx, o.profileID)
+		profile, err := o.store.GetProfile(o.ctx, o.profileID)
 		if err != nil {
 			return nil, err
 		}
@@ -143,7 +143,7 @@ func (o *ssoTokenSource) Valid() bool {
 func (o *ssoTokenSource) Save(token *oauth2.Token) error {
 	o.Lock()
 	defer o.Unlock()
-	profile, err := o.store.FindProfile(o.ctx, o.profileID)
+	profile, err := o.store.GetProfile(o.ctx, o.profileID)
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,7 @@ func (o *ssoTokenSource) Save(token *oauth2.Token) error {
 }
 
 func (o *ssoTokenSource) AuthUrl() (string, error) {
-	profile, err := o.store.FindProfile(o.ctx, o.profileID)
+	profile, err := o.store.GetProfile(o.ctx, o.profileID)
 	if err != nil {
 		return "", err
 	}
