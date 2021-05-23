@@ -13,7 +13,7 @@ type DataStore interface {
 
 type ProfileStore interface {
 	NewProfile(ctx context.Context, profileName string, data interface{}) (*Profile, error)
-	GetProfile(ctx context.Context, profileName string) (*Profile, error)
+	GetProfile(ctx context.Context, profileID string) (*Profile, error)
 	FindProfile(ctx context.Context, profileName string) (*Profile, error)
 	DeleteProfile(ctx context.Context, profileID string) error
 

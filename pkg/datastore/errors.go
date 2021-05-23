@@ -11,9 +11,16 @@ import (
 )
 
 var (
-	ErrUniqueViolation  = errors.New("Unable to insert or update resource because a resource with that value already exists")
-	ErrConcurrentUpdate = errors.New("Unable to serialize access due to a concurrent update in another session")
-	ErrNoRows           = errors.New("Unable to locate the resource")
+	ErrUniqueViolation   = errors.New("Unable to insert or update resource because a resource with that value already exists")
+	ErrConcurrentUpdate  = errors.New("Unable to serialize access due to a concurrent update in another session")
+	ErrNoRows            = errors.New("Unable to locate the resource")
+	ErrNoQuery           = errors.New("all search parameters are nil")
+	ErrTokenScope        = errors.New("scope is missing")
+	ErrTokenName         = errors.New("name is missing")
+	ErrTokenOwner        = errors.New("owner is missing")
+	ErrTokenID           = errors.New("id is missing")
+	ErrTranscationOpen   = errors.New("transaction already exist in this context")
+	ErrNoTranscationOpen = errors.New("no transaction in this context")
 )
 
 func HandleError(err error) error {

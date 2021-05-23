@@ -10,13 +10,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
-	"github.com/pkg/errors"
-)
-
-var (
-	ErrStateSuccess       = errors.New("successful resolution")
-	ErrStateAlreadyExists = errors.New("state already exists")
-	ErrStateNotFound      = errors.New("state not found")
 )
 
 type PKCE struct {

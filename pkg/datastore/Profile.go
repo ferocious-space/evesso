@@ -2,7 +2,6 @@ package datastore
 
 import (
 	"context"
-	"database/sql/driver"
 	"fmt"
 	"sort"
 	"strings"
@@ -10,25 +9,11 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/goccy/go-json"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/lestrrat-go/jwx/jwt"
-	"github.com/pkg/errors"
 	"golang.org/x/oauth2"
 )
-
-var (
-	ErrNoQuery = errors.New("all search parameters are nil")
-
-	ErrTokenScope = errors.New("scope is missing")
-	ErrTokenName  = errors.New("name is missing")
-	ErrTokenOwner = errors.New("owner is missing")
-	ErrTokenID    = errors.New("id is missing")
-)
-
-var ErrTranscationOpen = errors.New("transaction already exist in this context")
-var ErrNoTranscationOpen = errors.New("no transaction in this context")
 
 type Profile struct {
 	sync.Mutex `db:"-"`
@@ -37,27 +22,20 @@ type Profile struct {
 	ID string `json:"id" db:"id"`
 
 	//ProfileType can be used to define custom profile types , e.g. service bot that uses multiple characters to query esi for information
-	ProfileName string    `json:"profile_name" db:"profile_name"`
-	ProfileData *JSONData `json:"profile_data" db:"profile_data"`
+	ProfileName string `json:"profile_name" db:"profile_name"`
 
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
 
-type JSONData struct {
-	data interface{}
-}
-
-func NewJSONData(i interface{}) *JSONData {
-	return &JSONData{i}
-}
-
-func (j *JSONData) Scan(src interface{}) error {
-	return json.Unmarshal(src.([]byte), &j.data)
-}
-
-func (j JSONData) Value() (driver.Value, error) {
-	return json.Marshal(j.data)
+func (p *Profile) Reload(ctx context.Context) error {
+	return p.persister.tx(
+		ctx, func(ctx context.Context, tx *sqlx.Tx) error {
+			q := tx.Rebind("SELECT id, profile_name, created_at, updated_at FROM profiles WHERE id = ?")
+			logr.FromContextOrDiscard(ctx).Info(q, "id", p.ID)
+			return tx.QueryRowxContext(ctx, q, p.ID).StructScan(p)
+		},
+	)
 }
 
 func (p *Profile) GetCharacter(ctx context.Context, characterID int32, characterName string, Owner string, Scopes Scopes) (*Character, error) {
@@ -172,107 +150,13 @@ func (p *Profile) CreatePKCE(ctx context.Context) (*PKCE, error) {
 	)
 }
 
-type Character struct {
-	sync.Mutex `db:"-"`
-	persister  *Persister `db:"-"`
-
-	ID string `json:"id" db:"id"`
-
-	ProfileReference string `json:"profile_ref" db:"profile_ref"`
-
-	//ESI CharacterID
-	CharacterID int32 `json:"character_id" db:"character_id"`
-
-	//ESI CharacterName
-	CharacterName string `json:"name" db:"character_name"`
-
-	//ESI CharacterOwner
-	Owner string `json:"owner" db:"owner"`
-
-	//Custom CharacterData
-	CharacterData *JSONData `json:"character_data" db:"character_data"`
-
-	//RefreshToken is oauth2 refresh token
-	RefreshToken string `json:"refresh_token" db:"refresh_token"`
-
-	//Scopes is the scopes the refresh token was issued with
-	Scopes Scopes `json:"scopes" db:"scopes"`
-
-	Active bool `json:"active" db:"active"`
-
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
-}
-
-func (c *Character) UpdateToken(ctx context.Context, RefreshToken string) error {
-	c.RefreshToken = RefreshToken
-	return c.persister.tx(
+func (p *Profile) Delete(ctx context.Context) error {
+	return p.persister.tx(
 		ctx, func(ctx context.Context, tx *sqlx.Tx) error {
-			q := tx.Rebind("update characters set refresh_token = ? , updated_at = ? where id = ?")
-			logr.FromContextOrDiscard(ctx).V(1).Info(q, "id", c.ID, "profile", c.ProfileReference)
-			_, err := tx.ExecContext(ctx, q, RefreshToken, time.Now(), c.ID)
-			if err != nil {
-				return err
-			}
+			q := tx.Rebind("delete from profiles where id = ?")
+			logr.FromContextOrDiscard(ctx).V(1).Info(q, "id", p.ID)
+			_, err := tx.ExecContext(ctx, q, p.ID)
 			return err
 		},
 	)
-}
-
-func (c *Character) UpdateActiveState(ctx context.Context, active bool) error {
-	c.Lock()
-	defer c.Unlock()
-	old := c.Active
-	c.Active = active
-	err := c.persister.tx(
-		ctx, func(ctx context.Context, tx *sqlx.Tx) error {
-			q := tx.Rebind("update characters set active = ?, updated_at = ? where id = ?")
-			logr.FromContextOrDiscard(ctx).V(1).Info(q, "id", c.ID, "profile", c.ProfileReference)
-			_, err := tx.ExecContext(ctx, q, active, time.Now(), c.ID)
-			if err != nil {
-				return err
-			}
-			return err
-		},
-	)
-	if err != nil {
-		c.Active = old
-		return err
-	}
-	return nil
-}
-
-func (c *Character) Token() (*oauth2.Token, error) {
-	return &oauth2.Token{RefreshToken: c.RefreshToken, Expiry: time.Now()}, nil
-}
-
-func (c *Character) Delete(ctx context.Context) error {
-	return c.persister.tx(
-		ctx, func(ctx context.Context, tx *sqlx.Tx) error {
-			q := tx.Rebind("delete from characters where id = ?")
-			logr.FromContextOrDiscard(ctx).V(1).Info(q, "id", c.ID, "profile", c.ProfileReference)
-			_, err := tx.ExecContext(ctx, q, c.ID)
-			if err != nil {
-				return err
-			}
-			return err
-			//return HandleError(c.persister.Connection(ctx).Destroy(c))
-		},
-	)
-}
-
-type Scopes []string
-
-func (s Scopes) Value() (driver.Value, error) {
-	scp := s[:]
-	sort.Strings(scp)
-	return json.Marshal(scp)
-}
-
-func (s *Scopes) Scan(src interface{}) error {
-	data, ok := src.([]byte)
-	if !ok {
-		return errors.Errorf("unable to unmarshal Scopes value: %v", src)
-	}
-	return json.Unmarshal(data, &s)
 }

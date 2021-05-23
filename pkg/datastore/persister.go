@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -229,6 +230,49 @@ func (x *Persister) DeleteProfile(ctx context.Context, profileID string) error {
 			return err
 		},
 	)
+}
+
+func (x *Persister) FindCharacter(ctx context.Context, characterID int32, characterName string, Owner string, scopes Scopes) (*Profile, *Character, error) {
+	character := new(Character)
+	err := x.tx(
+		ctx, func(ctx context.Context, tx *sqlx.Tx) error {
+			query := make(map[string]interface{})
+			queryParams := make([]string, 0)
+			dataQuery := `SELECT id, profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at FROM characters WHERE %s LIMIT 1`
+
+			if characterID > 0 {
+				query["character_id"] = characterID
+				queryParams = append(queryParams, `character_id = :character_i`)
+			}
+			if len(characterName) > 0 {
+				query["character_name"] = characterName
+				queryParams = append(queryParams, `character_name = :character_name`)
+			}
+			if len(Owner) > 0 {
+				query["owner"] = Owner
+				queryParams = append(queryParams, `owner = :owner`)
+			}
+			query["active"] = true
+			queryParams = append(queryParams, `active = :active`)
+
+			q := fmt.Sprintf(dataQuery, strings.Join(queryParams, " AND "))
+			logr.FromContextOrDiscard(ctx).Info(q)
+			namedContext, err := tx.PrepareNamedContext(ctx, q)
+			if err != nil {
+				return err
+			}
+			return namedContext.QueryRowxContext(ctx, query).StructScan(character)
+		},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	profile, err := x.GetProfile(ctx, character.ProfileReference)
+	if err != nil {
+		return nil, nil, err
+	}
+	return profile, character, nil
 }
 
 func (x *Persister) GetPKCE(ctx context.Context, state string) (*PKCE, error) {

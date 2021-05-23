@@ -25,8 +25,8 @@ type ssoTokenSource struct {
 
 	store datastore.DataStore
 
-	Profile       *datastore.Profile
-	Character     *datastore.Character
+	character     *datastore.Character
+	profileID     string
 	characterName string
 }
 
@@ -52,7 +52,7 @@ func (o *ssoTokenSource) validate(token jwt.Token) error {
 	return jwt.Validate(
 		token,
 		jwt.WithIssuer(CONST_ISSUER), jwt.WithClaimValue("azp", o.oauthConfig.ClientID),
-		jwt.WithSubject(fmt.Sprintf("CHARACTER:EVE:%d", o.Character.CharacterID)), jwt.WithClaimValue("owner", o.Character.Owner),
+		jwt.WithSubject(fmt.Sprintf("CHARACTER:EVE:%d", o.character.CharacterID)), jwt.WithClaimValue("owner", o.character.Owner),
 	)
 }
 
@@ -60,29 +60,27 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 	o.Lock()
 	defer o.Unlock()
 	if o.t == nil {
-		// get token from store , this should happen only on initial request
-		if o.Character == nil {
-			character, err := o.Profile.GetCharacter(o.ctx, 0, o.characterName, "", o.oauthConfig.Scopes)
-			if err != nil {
-				return nil, err
-			}
-			o.t, _ = character.Token()
-			o.Character = character
-		} else {
-			o.t, _ = o.Character.Token()
-			profile, err := o.store.GetProfile(o.ctx, o.Character.ProfileReference)
-			if err != nil {
-				return nil, err
-			}
-			o.Profile = profile
+		profile, err := o.store.FindProfile(o.ctx, o.profileID)
+		if err != nil {
+			return nil, err
 		}
+		// get token from store , this should happen only on initial request
+		character, err := profile.GetCharacter(o.ctx, 0, o.characterName, "", o.oauthConfig.Scopes)
+		if err != nil {
+			return nil, err
+		}
+		o.t, _ = character.Token()
+		o.character = character
 
 	}
 	// get token from refresh token or refresh existing access token
 	l, err := o.oauthConfig.TokenSource(o.ctx, o.t).Token()
 	if err != nil {
 		if o.t != nil {
-			terr := o.Character.UpdateActiveState(o.ctx, false)
+			if o.character.Reload(o.ctx) != nil {
+				return nil, err
+			}
+			terr := o.character.UpdateActiveState(o.ctx, false)
 			if terr != nil {
 				return nil, errors.Wrap(terr, err.Error())
 			}
@@ -91,7 +89,7 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 	}
 	// check if refresh token changed
 	if o.t.RefreshToken != l.RefreshToken {
-		err := o.Character.UpdateToken(o.ctx, l.RefreshToken)
+		err := o.character.UpdateToken(o.ctx, l.RefreshToken)
 		if err != nil {
 			return nil, err
 		}
@@ -117,17 +115,25 @@ func (o *ssoTokenSource) Valid() bool {
 func (o *ssoTokenSource) Save(token *oauth2.Token) error {
 	o.Lock()
 	defer o.Unlock()
-	character, err := o.Profile.CreateCharacter(o.ctx, token)
+	profile, err := o.store.FindProfile(o.ctx, o.profileID)
+	if err != nil {
+		return err
+	}
+	character, err := profile.CreateCharacter(o.ctx, token)
 	if err != nil {
 		return err
 	}
 	o.t = token
-	o.Character = character
+	o.character = character
 	return nil
 }
 
 func (o *ssoTokenSource) AuthUrl() (string, error) {
-	pkce, err := o.Profile.CreatePKCE(o.ctx)
+	profile, err := o.store.FindProfile(o.ctx, o.profileID)
+	if err != nil {
+		return "", err
+	}
+	pkce, err := profile.CreatePKCE(o.ctx)
 	if err != nil {
 		return "", err
 	}

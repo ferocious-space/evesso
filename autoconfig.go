@@ -105,7 +105,7 @@ func (r *EVESSO) Store() datastore.DataStore {
 	return r.store
 }
 
-func (r *EVESSO) TokenSource(profile *datastore.Profile, CharacterName string, Scopes ...string) (*ssoTokenSource, error) {
+func (r *EVESSO) TokenSource(profileID string, CharacterName string, Scopes ...string) (*ssoTokenSource, error) {
 	return &ssoTokenSource{
 		t:           nil,
 		ctx:         context.WithValue(r.ctx, oauth2.HTTPClient, r.client),
@@ -114,7 +114,7 @@ func (r *EVESSO) TokenSource(profile *datastore.Profile, CharacterName string, S
 			return r.refresher.Fetch(r.ctx, r.JwksURI)
 		},
 		store:         r.store,
-		Profile:       profile,
+		profileID:     profileID,
 		characterName: CharacterName,
 	}, nil
 }
@@ -128,8 +128,7 @@ func (r *EVESSO) CharacterSource(character *datastore.Character) (*ssoTokenSourc
 			return r.refresher.Fetch(r.ctx, r.JwksURI)
 		},
 		store:         r.store,
-		Profile:       nil,
-		Character:     character,
+		profileID:     character.ProfileReference,
 		characterName: character.CharacterName,
 	}, nil
 }
