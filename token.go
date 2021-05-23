@@ -30,6 +30,34 @@ type ssoTokenSource struct {
 	characterName string
 }
 
+func (o *ssoTokenSource) GetCharacterID() *int32 {
+	if o.character != nil {
+		return &o.character.CharacterID
+	}
+	return nil
+}
+
+func (o *ssoTokenSource) GetCharacterName() *string {
+	if o.character != nil {
+		return &o.character.CharacterName
+	}
+	return nil
+}
+
+func (o *ssoTokenSource) GetCharacterOwner() *string {
+	if o.character != nil {
+		return &o.character.Owner
+	}
+	return nil
+}
+
+func (o *ssoTokenSource) GetTokenScopes() datastore.Scopes {
+	if o.character != nil {
+		return o.character.Scopes
+	}
+	return nil
+}
+
 func (o *ssoTokenSource) jwt(token *oauth2.Token) (jwt.Token, error) {
 	ks, err := o.jwkfn()
 	if err != nil {
