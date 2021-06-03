@@ -1,6 +1,7 @@
 package evesso
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -30,6 +31,14 @@ type appConfig struct {
 	TLSKey string `json:"tlskey"`
 }
 
+func (c appConfig) CallbackURL() *url.URL {
+	parse, err := url.Parse(c.Callback)
+	if err != nil {
+		return nil
+	}
+	return parse
+}
+
 func (c *appConfig) Load(path string) error {
 	cfg, err := os.Open(path)
 	if err != nil {
@@ -38,11 +47,11 @@ func (c *appConfig) Load(path string) error {
 	defer cfg.Close()
 	switch filepath.Ext(path) {
 	case ".yaml", ".yml":
-		if err = yaml.NewDecoder(cfg).Decode(&c); err != nil {
+		if err = yaml.NewDecoder(cfg).Decode(c); err != nil {
 			return err
 		}
 	case ".json":
-		if err = json.NewDecoder(cfg).Decode(&c); err != nil {
+		if err = json.NewDecoder(cfg).Decode(c); err != nil {
 			return err
 		}
 	default:

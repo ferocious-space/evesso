@@ -57,7 +57,6 @@ func dialContext(ctx context.Context, d proxy.Dialer, network, address string) (
 		err = ctx.Err()
 	case <-done:
 	}
-
 	return conn, err
 }
 

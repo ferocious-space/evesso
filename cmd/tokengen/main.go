@@ -11,20 +11,21 @@ import (
 
 	"github.com/ferocious-space/evesso"
 	"github.com/ferocious-space/evesso/internal/utils"
+	"github.com/ferocious-space/evesso/pkg/datastore/postgres"
 )
 
 func main() {
 
 	logger := stdr.NewWithOptions(log.New(os.Stderr, " ", log.LstdFlags), stdr.Options{LogCaller: stdr.All})
 	newContext := logr.NewContext(context.Background(), logger)
-	config, err := evesso.AutoConfig(newContext, "./config.yaml", nil)
+	config, err := evesso.AutoConfig(newContext, "./config.yaml", &postgres.PGStore{}, nil)
 	if err != nil {
 		log.Fatalln(err)
 		return
 	}
 	defaultProfile, err := config.Store().FindProfile(newContext, "default")
 	if err != nil {
-		defaultProfile, err = config.Store().NewProfile(newContext, "default", nil)
+		defaultProfile, err = config.Store().NewProfile(newContext, "default")
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -34,7 +35,7 @@ func main() {
 		log.Fatalln(err)
 		return
 	}
-	source, err := config.TokenSource(defaultProfile.ProfileName, "Ferocious Bite", evesso.ALL_SCOPES...)
+	source, err := config.TokenSource(defaultProfile.GetID(), "Ferocious Bite", evesso.ALL_SCOPES...)
 	if err != nil {
 		log.Fatalln(err)
 		return

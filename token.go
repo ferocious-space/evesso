@@ -11,8 +11,6 @@ import (
 	"github.com/lestrrat-go/jwx/jwt"
 	"github.com/pkg/errors"
 	"golang.org/x/oauth2"
-
-	"github.com/ferocious-space/evesso/pkg/datastore"
 )
 
 type ssoTokenSource struct {
@@ -23,37 +21,37 @@ type ssoTokenSource struct {
 	jwkfn       func() (jwk.Set, error)
 	oauthConfig *oauth2.Config
 
-	store datastore.DataStore
+	store DataStore
 
-	character     *datastore.Character
-	profileID     string
+	character     Character
+	profileID     ProfileID
 	characterName string
 }
 
 func (o *ssoTokenSource) GetCharacterID() int32 {
 	if o.character != nil {
-		return o.character.CharacterID
+		return o.character.GetCharacterID()
 	}
 	return 0
 }
 
 func (o *ssoTokenSource) GetCharacterName() string {
 	if o.character != nil {
-		return o.character.CharacterName
+		return o.character.GetCharacterName()
 	}
 	return ""
 }
 
 func (o *ssoTokenSource) GetCharacterOwner() string {
 	if o.character != nil {
-		return o.character.Owner
+		return o.character.GetOwner()
 	}
 	return ""
 }
 
-func (o *ssoTokenSource) GetTokenScopes() datastore.Scopes {
+func (o *ssoTokenSource) GetTokenScopes() []string {
 	if o.character != nil {
-		return o.character.Scopes
+		return o.character.GetScopes()
 	}
 	return nil
 }
@@ -80,7 +78,7 @@ func (o *ssoTokenSource) validate(token jwt.Token) error {
 	return jwt.Validate(
 		token,
 		jwt.WithIssuer(CONST_ISSUER), jwt.WithClaimValue("azp", o.oauthConfig.ClientID),
-		jwt.WithSubject(fmt.Sprintf("CHARACTER:EVE:%d", o.character.CharacterID)), jwt.WithClaimValue("owner", o.character.Owner),
+		jwt.WithSubject(fmt.Sprintf("CHARACTER:EVE:%d", o.character.GetCharacterID())), jwt.WithClaimValue("owner", o.character.GetOwner()),
 	)
 }
 
@@ -105,9 +103,6 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 	l, err := o.oauthConfig.TokenSource(o.ctx, o.t).Token()
 	if err != nil {
 		if o.t != nil {
-			if o.character.Reload(o.ctx) != nil {
-				return nil, err
-			}
 			terr := o.character.UpdateActiveState(o.ctx, false)
 			if terr != nil {
 				return nil, errors.Wrap(terr, err.Error())
@@ -166,10 +161,10 @@ func (o *ssoTokenSource) AuthUrl() (string, error) {
 		return "", err
 	}
 	return o.oauthConfig.AuthCodeURL(
-		pkce.State,
+		pkce.GetState(),
 		oauth2.AccessTypeOffline,
-		oauth2.SetAuthURLParam("code_challange", pkce.CodeChallange),
-		oauth2.SetAuthURLParam("code_challange_method", pkce.CodeChallangeMethod),
+		oauth2.SetAuthURLParam("code_challange", pkce.GetCodeChallange()),
+		oauth2.SetAuthURLParam("code_challange_method", pkce.GetCodeChallangeMethod()),
 	), nil
 }
 

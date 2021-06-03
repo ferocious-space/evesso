@@ -1,4 +1,4 @@
-package datastore
+package postgres
 
 import (
 	"context"
@@ -9,15 +9,17 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
+	"github.com/jackc/pgx/v4"
+
+	"github.com/ferocious-space/evesso"
 )
 
 type PKCE struct {
-	persister *Persister `db:"-"`
+	persister *PGStore `db:"-"`
 
 	ID string `json:"id" db:"id"`
 
-	ProfileReference string `json:"profile_id" db:"profile_ref"`
+	ProfileReference evesso.ProfileID `json:"profile_id" db:"profile_ref"`
 
 	State               string `json:"state" db:"state"`
 	CodeVerifier        string `json:"code_verifier" db:"code_verifier"`
@@ -27,17 +29,46 @@ type PKCE struct {
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
-func (p *PKCE) GetProfile(ctx context.Context) (*Profile, error) {
-	return p.persister.GetProfile(ctx, p.ProfileReference)
+func (p *PKCE) GetID() string {
+	return p.ID
+}
+
+func (p *PKCE) GetProfileID() evesso.ProfileID {
+	return p.ProfileReference
+}
+
+func (p *PKCE) GetState() string {
+	return p.State
+}
+
+func (p *PKCE) GetCodeVerifier() string {
+	return p.CodeVerifier
+}
+
+func (p *PKCE) GetCodeChallange() string {
+	return p.CodeChallange
+}
+
+func (p *PKCE) GetCodeChallangeMethod() string {
+	return p.CodeChallangeMethod
+}
+
+func (p *PKCE) GetProfile(ctx context.Context) (evesso.Profile, error) {
+	return p.persister.GetProfile(ctx, p.GetProfileID())
 }
 
 func (p *PKCE) Destroy(ctx context.Context) error {
-	return p.persister.tx(
-		ctx, func(ctx context.Context, tx *sqlx.Tx) error {
-			q := tx.Rebind("delete from pkces where id = ?")
+	return p.persister.transaction(
+		ctx, func(ctx context.Context, tx pgx.Tx) error {
+			q := "DELETE FROM pkces WHERE id = $1"
+			if _, err := tx.Exec(ctx, q, p.ID); err != nil {
+				return err
+			}
+			//q := tx.Rebind("delete from pkces where id = ?")
 			logr.FromContextOrDiscard(ctx).Info(q, "id", p.ID, "profile", p.ProfileReference)
-			_, err := tx.ExecContext(ctx, q, p.ID)
-			return err
+			//_, err := tx.ExecContext(ctx, q, p.ID)
+			//return err
+			return nil
 		},
 	)
 }
@@ -67,3 +98,5 @@ func MakePKCE(profile *Profile) *PKCE {
 		CreatedAt:           time.Now(),
 	}
 }
+
+var _ evesso.PKCE = &PKCE{}

@@ -18,7 +18,6 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/ferocious-space/evesso/internal/utils"
-	"github.com/ferocious-space/evesso/pkg/datastore"
 )
 
 type EVESSO struct {
@@ -37,11 +36,11 @@ type EVESSO struct {
 	cfg       *appConfig
 	client    *http.Client
 
-	store datastore.DataStore
+	store DataStore
 	ctx   context.Context
 }
 
-func AutoConfig(ctx context.Context, cfgpath string, client *http.Client) (*EVESSO, error) {
+func AutoConfig(ctx context.Context, cfgpath string, store DataStore, client *http.Client) (*EVESSO, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Minute}
 	}
@@ -53,11 +52,11 @@ func AutoConfig(ctx context.Context, cfgpath string, client *http.Client) (*EVES
 	if err := item.cfg.Load(cfgpath); err != nil {
 		return nil, err
 	}
-	ds, err := datastore.NewPersister(ctx, item.cfg.DSN, false)
+	err := store.Setup(ctx, item.cfg.DSN)
 	if err != nil {
 		return nil, err
 	}
-	item.store = ds
+	item.store = store
 	issuer, err := url.Parse(path.Join(CONST_ISSUER, CONST_AUTOCONFIG_URL))
 	if err != nil {
 		return nil, err
@@ -101,11 +100,11 @@ func (r *EVESSO) OAuth2(scopes ...string) *oauth2.Config {
 	}
 }
 
-func (r *EVESSO) Store() datastore.DataStore {
+func (r *EVESSO) Store() DataStore {
 	return r.store
 }
 
-func (r *EVESSO) TokenSource(profileID string, CharacterName string, Scopes ...string) (*ssoTokenSource, error) {
+func (r *EVESSO) TokenSource(profileID ProfileID, CharacterName string, Scopes ...string) (*ssoTokenSource, error) {
 	return &ssoTokenSource{
 		t:           nil,
 		ctx:         context.WithValue(r.ctx, oauth2.HTTPClient, r.client),
@@ -119,17 +118,17 @@ func (r *EVESSO) TokenSource(profileID string, CharacterName string, Scopes ...s
 	}, nil
 }
 
-func (r *EVESSO) CharacterSource(character *datastore.Character) (*ssoTokenSource, error) {
+func (r *EVESSO) CharacterSource(character Character) (*ssoTokenSource, error) {
 	return &ssoTokenSource{
 		t:           nil,
 		ctx:         context.WithValue(r.ctx, oauth2.HTTPClient, r.client),
-		oauthConfig: r.OAuth2(character.Scopes...),
+		oauthConfig: r.OAuth2(character.GetScopes()...),
 		jwkfn: func() (jwk.Set, error) {
 			return r.refresher.Fetch(r.ctx, r.JwksURI)
 		},
 		store:         r.store,
-		profileID:     character.ProfileReference,
-		characterName: character.CharacterName,
+		profileID:     character.GetProfileID(),
+		characterName: character.GetCharacterName(),
 	}, nil
 }
 
@@ -161,7 +160,7 @@ func (r *EVESSO) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	token, err := r.OAuth2().Exchange(
 		r.ctx,
 		code,
-		oauth2.SetAuthURLParam("code_verifier", pkce.CodeVerifier),
+		oauth2.SetAuthURLParam("code_verifier", pkce.GetCodeVerifier()),
 	)
 	if err != nil {
 		//token exchange failed ?
@@ -240,7 +239,7 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 			token, err := r.OAuth2().Exchange(
 				ctx,
 				code,
-				oauth2.SetAuthURLParam("code_verifier", pkce.CodeVerifier),
+				oauth2.SetAuthURLParam("code_verifier", pkce.GetCodeVerifier()),
 			)
 
 			if err != nil {
