@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/go-logr/logr"
-	"github.com/go-logr/stdr"
 
 	"github.com/ferocious-space/evesso"
 	"github.com/ferocious-space/evesso/internal/utils"
@@ -15,9 +13,7 @@ import (
 )
 
 func main() {
-
-	logger := stdr.NewWithOptions(log.New(os.Stderr, " ", log.LstdFlags), stdr.Options{LogCaller: stdr.All})
-	newContext := logr.NewContext(context.Background(), logger)
+	newContext := logr.NewContext(context.Background(), logr.Discard())
 	config, err := evesso.AutoConfig(newContext, "./config.yaml", &postgres.PGStore{}, nil)
 	if err != nil {
 		log.Fatalln(err)

@@ -1,34 +1,13 @@
 package postgres
 
 import (
-	"database/sql/driver"
-	"sort"
-
-	"github.com/goccy/go-json"
-	"github.com/pkg/errors"
+	"github.com/jackc/pgtype"
 )
 
-type Scope []string
-
-func MakeScopes(in []string) *Scope {
-	scope := Scope(in)
-	return &scope
-}
-
-func (s Scope) Get() []string {
-	return s
-}
-
-func (s Scope) Value() (driver.Value, error) {
-	scp := s[:]
-	sort.Strings(scp)
-	return json.Marshal(scp)
-}
-
-func (s *Scope) Scan(src interface{}) error {
-	data, ok := src.([]byte)
-	if !ok {
-		return errors.Errorf("unable to unmarshal Scope value: %v", src)
+func MakeScopes(in []string) pgtype.TextArray {
+	ta := pgtype.TextArray{}
+	if err := ta.Set(in); err != nil {
+		return pgtype.TextArray{}
 	}
-	return json.Unmarshal(data, &s)
+	return ta
 }

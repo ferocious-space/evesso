@@ -39,7 +39,7 @@ create table if not exists characters
     character_name varchar(255) not null,
     owner          varchar(255) not null,
     refresh_token  varchar(255) not null,
-    scopes         jsonb        not null,
+    scopes         text[],
     active         boolean      not null,
     created_at     timestamp    not null,
     updated_at     timestamp    not null,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/gofrs/uuid"
 	"golang.org/x/oauth2"
 )
 
@@ -12,22 +13,20 @@ type DataStore interface {
 	ProfileStore
 }
 
-type ProfileName string
-type ProfileID string
-
 type ProfileStore interface {
-	NewProfile(ctx context.Context, profileName ProfileName) (Profile, error)
-	GetProfile(ctx context.Context, profileID ProfileID) (Profile, error)
-	FindProfile(ctx context.Context, profileName ProfileName) (Profile, error)
-	DeleteProfile(ctx context.Context, profileID ProfileID) error
+	NewProfile(ctx context.Context, profileName string) (Profile, error)
+	GetProfile(ctx context.Context, profileID uuid.UUID) (Profile, error)
+	FindProfile(ctx context.Context, profileName string) (Profile, error)
+	FindCharacter(ctx context.Context, characterID int32, characterName string, Owner string) (Profile, Character, error)
+	DeleteProfile(ctx context.Context, profileID uuid.UUID) error
 
 	GetPKCE(ctx context.Context, state string) (PKCE, error)
 	CleanPKCE(ctx context.Context) error
 }
 
 type Profile interface {
-	GetID() ProfileID
-	GetName() ProfileName
+	GetID() uuid.UUID
+	GetName() string
 
 	GetCharacter(ctx context.Context, characterID int32, characterName string, Owner string, Scopes []string) (Character, error)
 	CreateCharacter(ctx context.Context, token *oauth2.Token) (Character, error)
@@ -36,9 +35,9 @@ type Profile interface {
 }
 
 type PKCE interface {
-	GetID() string
-	GetProfileID() ProfileID
-	GetState() string
+	GetID() uuid.UUID
+	GetProfileID() uuid.UUID
+	GetState() uuid.UUID
 	GetCodeVerifier() string
 	GetCodeChallange() string
 	GetCodeChallangeMethod() string
@@ -49,12 +48,12 @@ type PKCE interface {
 }
 
 type Character interface {
-	GetID() string
-	GetScopes() []string
-	GetProfileID() ProfileID
+	GetID() uuid.UUID
+	GetProfileID() uuid.UUID
 	GetCharacterName() string
 	GetCharacterID() int32
 	GetOwner() string
+	GetScopes() []string
 	IsActive() bool
 
 	GetProfile(ctx context.Context) (Profile, error)

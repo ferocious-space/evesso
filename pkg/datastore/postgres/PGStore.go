@@ -20,7 +20,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/ferocious-space/evesso"
-	"github.com/ferocious-space/evesso/internal/embedfs"
+	"github.com/ferocious-space/evesso/pkg/datastore/embedfs"
 )
 
 const transactionSSOKey = "transactionSSOKey"
@@ -78,74 +78,24 @@ func (x *PGStore) Setup(ctx context.Context, dsn string) error {
 	return nil
 }
 
-func (x *PGStore) BeginTX(ctx context.Context) (context.Context, error) {
-	_, ok := ctx.Value(transactionSSOKey).(pgx.Tx)
-	if ok {
-		return ctx, ErrTranscationOpen
-	}
-	tx, err := x.pool.BeginTx(
-		ctx, pgx.TxOptions{
-			IsoLevel:   pgx.RepeatableRead,
-			AccessMode: pgx.ReadWrite,
-		},
-	)
-	return context.WithValue(ctx, transactionSSOKey, tx), err
-}
-func (x *PGStore) Commit(ctx context.Context) error {
-	c, ok := ctx.Value(transactionSSOKey).(pgx.Tx)
-	if !ok || c == nil {
-		return errors.WithStack(ErrNoTranscationOpen)
-	}
-
-	return c.Commit(ctx)
-}
-func (x *PGStore) Rollback(ctx context.Context) error {
-	c, ok := ctx.Value(transactionSSOKey).(pgx.Tx)
-	if !ok || c == nil {
-		return errors.WithStack(ErrNoTranscationOpen)
-	}
-
-	return c.Rollback(ctx)
-}
-
-func (x *PGStore) Connection(ctx context.Context) (pgx.Tx, error) {
-	if c, ok := ctx.Value(transactionSSOKey).(pgx.Tx); ok {
-		return c, nil
-	}
-	resultCtx, err := x.BeginTX(ctx)
+//Connection have to call Release() after usage !
+func (x *PGStore) Connection(ctx context.Context) (*pgxpool.Conn, error) {
+	tx, err := x.pool.Acquire(ctx)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, err
 	}
-	return x.Connection(resultCtx)
+	return tx, err
 }
 
 func (x *PGStore) transaction(ctx context.Context, f func(ctx context.Context, tx pgx.Tx) error) error {
-	var err error
-	isNested := true
-	c, ok := ctx.Value(transactionSSOKey).(pgx.Tx)
-	if !ok {
-		isNested = false
-		c, err = x.Connection(ctx)
-		if err != nil {
-			logr.FromContextOrDiscard(ctx).Error(err, "connection")
-			return errors.WithStack(err)
-		}
-	}
-	tctx := context.WithValue(ctx, transactionSSOKey, c)
-	if err := f(tctx, c); err != nil {
-		if !isNested {
-			if err := c.Rollback(ctx); err != nil {
-				logr.FromContextOrDiscard(ctx).Error(err, "nested transaction")
-				return errors.WithStack(err)
-			}
-		}
-		logr.FromContextOrDiscard(ctx).Error(err, "transaction")
-		return HandleError(err)
-	}
-	if !isNested {
-		return errors.WithStack(c.Commit(ctx))
-	}
-	return nil
+	return x.pool.BeginTxFunc(
+		ctx, pgx.TxOptions{
+			IsoLevel:   pgx.RepeatableRead,
+			AccessMode: pgx.ReadWrite,
+		}, func(tx pgx.Tx) error {
+			return f(ctx, tx)
+		},
+	)
 }
 
 type migrationLogger struct {
@@ -242,14 +192,13 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 	return data, nil
 }
 
-func (x *PGStore) NewProfile(ctx context.Context, profileName evesso.ProfileName) (evesso.Profile, error) {
+func (x *PGStore) NewProfile(ctx context.Context, profileName string) (evesso.Profile, error) {
 	profile := new(Profile)
-	profile.persister = x
-	profile.ID = evesso.ProfileID(uuid.Must(uuid.NewV4()).String())
+	profile.store = x
+	profile.ID = uuid.Must(uuid.NewV4())
 	profile.ProfileName = profileName
 	profile.CreatedAt = time.Now()
 	profile.UpdatedAt = time.Now()
-
 	return profile, x.transaction(
 		ctx, func(ctx context.Context, tx pgx.Tx) error {
 			q := `INSERT INTO profiles (id, profile_name, created_at, updated_at) values ($1 , $2 , $3 , $4)`
@@ -258,44 +207,41 @@ func (x *PGStore) NewProfile(ctx context.Context, profileName evesso.ProfileName
 			if err != nil {
 				return err
 			}
-			//_, err := tx.NamedExecContext(ctx, q, profile)
-			//if err != nil {
-			//	return err
-			//}
 			return nil
 		},
 	)
 }
 
-func (x *PGStore) GetProfile(ctx context.Context, profileID evesso.ProfileID) (evesso.Profile, error) {
+func (x *PGStore) GetProfile(ctx context.Context, profileID uuid.UUID) (evesso.Profile, error) {
 	profile := new(Profile)
-	profile.persister = x
-	return profile, x.transaction(
-		ctx, func(ctx context.Context, tx pgx.Tx) error {
-			q := "SELECT id,profile_name,created_at,updated_at FROM profiles WHERE id = $1"
-			logr.FromContextOrDiscard(ctx).Info(q, "id", profileID)
-			return tx.QueryRow(ctx, q, profileID).Scan(&profile.ID, &profile.ProfileName, &profile.CreatedAt, &profile.UpdatedAt)
-			//q := tx.Rebind("SELECT id, profile_name, created_at, updated_at FROM profiles WHERE id = ?")
-			//return tx.QueryRowxContext(ctx, q, profileID).StructScan(profile)
-		},
-	)
+	profile.store = x
+	tx, err := x.Connection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Release()
+	q := "SELECT id,profile_name,created_at,updated_at FROM profiles WHERE id = $1"
+	logr.FromContextOrDiscard(ctx).Info(q, "id", profileID)
+	return profile, tx.QueryRow(ctx, q, profileID).Scan(&profile.ID, &profile.ProfileName, &profile.CreatedAt, &profile.UpdatedAt)
+
 }
 
-func (x *PGStore) FindProfile(ctx context.Context, profileName evesso.ProfileName) (evesso.Profile, error) {
+func (x *PGStore) FindProfile(ctx context.Context, profileName string) (evesso.Profile, error) {
 	profile := new(Profile)
-	profile.persister = x
-	return profile, x.transaction(
-		ctx, func(ctx context.Context, tx pgx.Tx) error {
-			q := `SELECT id,profile_name,created_at,updated_at FROM profiles where profile_name = $1`
-			//q := tx.Rebind(`SELECT id,profile_name,created_at,updated_at from profiles where profile_name = ?`)
-			logr.FromContextOrDiscard(ctx).Info(q, "name", profileName)
-			return tx.QueryRow(ctx, q, profileName).Scan(&profile.ID, &profile.ProfileName, &profile.CreatedAt, &profile.UpdatedAt)
-			//return tx.QueryRowxContext(ctx, q, profileName).StructScan(profile)
-		},
-	)
+	profile.store = x
+	tx, err := x.Connection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Release()
+
+	q := `SELECT id,profile_name,created_at,updated_at FROM profiles where profile_name = $1`
+	logr.FromContextOrDiscard(ctx).Info(q, "name", profileName)
+	return profile, tx.QueryRow(ctx, q, profileName).Scan(&profile.ID, &profile.ProfileName, &profile.CreatedAt, &profile.UpdatedAt)
+
 }
 
-func (x *PGStore) DeleteProfile(ctx context.Context, profileID evesso.ProfileID) error {
+func (x *PGStore) DeleteProfile(ctx context.Context, profileID uuid.UUID) error {
 	return x.transaction(
 		ctx, func(ctx context.Context, tx pgx.Tx) error {
 			q := `DELETE FROM profiles where id = $1`
@@ -305,70 +251,55 @@ func (x *PGStore) DeleteProfile(ctx context.Context, profileID evesso.ProfileID)
 				return err
 			}
 			return nil
-			//q := tx.Rebind(`DELETE FROM profiles where id = ?`)
-			//_, err := tx.ExecContext(ctx, q, profileID)
-			//return err
 		},
 	)
 }
 
 func (x *PGStore) FindCharacter(ctx context.Context, characterID int32, characterName string, Owner string) (evesso.Profile, evesso.Character, error) {
 	character := new(Character)
-	err := x.transaction(
-		ctx, func(ctx context.Context, tx pgx.Tx) error {
-			//query := make(map[string]interface{})
-			//queryParams := make([]string, 0)
-			dataQuery := `SELECT id, profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at FROM characters WHERE %s`
-			whereParams := []string{}
-			queryParams := []interface{}{}
-			counter := 0
-			if characterID > 0 {
-				counter++
-				whereParams = append(whereParams, fmt.Sprintf("character_id = $%d", counter))
-				queryParams = append(queryParams, characterID)
-				//query["character_id"] = characterID
-				//queryParams = append(queryParams, `character_id = :character_i`)
-			}
-			if len(characterName) > 0 {
-				counter++
-				whereParams = append(whereParams, fmt.Sprintf("character_name = $%d", counter))
-				queryParams = append(queryParams, characterName)
-				//query["character_name"] = characterName
-				//queryParams = append(queryParams, `character_name = :character_name`)
-			}
-			if len(Owner) > 0 {
-				counter++
-				whereParams = append(whereParams, fmt.Sprintf("owner = $%d", counter))
-				queryParams = append(queryParams, Owner)
-				//query["owner"] = Owner
-				//queryParams = append(queryParams, `owner = :owner`)
-			}
-			counter++
-			whereParams = append(whereParams, fmt.Sprintf("active = $%d", counter))
-			queryParams = append(queryParams, true)
-			//query["active"] = true
-			//queryParams = append(queryParams, `active = :active`)
+	tx, err := x.Connection(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tx.Release()
 
-			q := fmt.Sprintf(dataQuery, strings.Join(whereParams, " AND "))
-			logr.FromContextOrDiscard(ctx).Info(q)
-			return tx.QueryRow(ctx, q, queryParams...).Scan(
-				&character.ID,
-				&character.ProfileReference,
-				&character.CharacterName,
-				&character.Owner,
-				&character.RefreshToken,
-				&character.Scopes,
-				&character.Active,
-				&character.CreatedAt,
-				&character.UpdatedAt,
-			)
-			//namedContext, err := tx.PrepareNamedContext(ctx, q)
-			//if err != nil {
-			//	return err
-			//}
-			//return namedContext.QueryRowxContext(ctx, query).StructScan(character)
-		},
+	dataQuery := `SELECT id, profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at FROM characters WHERE %s`
+	whereParams := []string{}
+	queryParams := []interface{}{}
+	counter := 0
+	if characterID > 0 {
+		counter++
+		whereParams = append(whereParams, fmt.Sprintf("character_id = $%d", counter))
+		queryParams = append(queryParams, characterID)
+	}
+	if len(characterName) > 0 {
+		counter++
+		whereParams = append(whereParams, fmt.Sprintf("character_name = $%d", counter))
+		queryParams = append(queryParams, characterName)
+	}
+	if len(Owner) > 0 {
+		counter++
+		whereParams = append(whereParams, fmt.Sprintf("owner = $%d", counter))
+		queryParams = append(queryParams, Owner)
+	}
+	counter++
+	whereParams = append(whereParams, fmt.Sprintf("active = $%d", counter))
+	queryParams = append(queryParams, true)
+
+	q := fmt.Sprintf(dataQuery, strings.Join(whereParams, " AND "))
+	logr.FromContextOrDiscard(ctx).Info(q)
+	err = tx.QueryRow(ctx, q, queryParams...).Scan(
+		&character.ID,
+		&character.ProfileReference,
+		&character.CharacterName,
+		&character.Owner,
+		&character.RefreshToken,
+		&character.Scopes,
+		&character.Active,
+		&character.CreatedAt,
+		&character.UpdatedAt,
 	)
+
 	if err != nil {
 		return nil, nil, err
 	}
@@ -382,46 +313,36 @@ func (x *PGStore) FindCharacter(ctx context.Context, characterID int32, characte
 
 func (x *PGStore) GetPKCE(ctx context.Context, state string) (evesso.PKCE, error) {
 	pkce := new(PKCE)
-	pkce.persister = x
-	return pkce, x.transaction(
-		ctx, func(ctx context.Context, tx pgx.Tx) error {
-			q := "SELECT id, profile_ref, state, code_verifier, code_challange, code_challange_method, created_at from pkces where state = $1 and created_at > $2"
-			logr.FromContextOrDiscard(ctx).Info(q, "state", state)
-			return tx.QueryRow(ctx, q, state, time.Now().Add(-5*time.Minute)).Scan(
-				&pkce.ID,
-				&pkce.ProfileReference,
-				&pkce.State,
-				&pkce.CodeVerifier,
-				&pkce.CodeChallange,
-				&pkce.CodeChallangeMethod,
-				&pkce.CreatedAt,
-			)
-			//q := tx.Rebind("SELECT id, profile_ref, state, code_verifier, code_challange, code_challange_method, created_at from pkces where state = ? and created_at > ?")
+	pkce.store = x
+	tx, err := x.Connection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Release()
 
-			//return tx.QueryRowxContext(ctx, q, state, time.Now().Add(-5*time.Minute)).StructScan(pkce)
-		},
+	q := "SELECT id, profile_ref, state, code_verifier, code_challange, code_challange_method, created_at from pkces where state = $1 and created_at > $2"
+	logr.FromContextOrDiscard(ctx).Info(q, "state", state)
+	return pkce, tx.QueryRow(ctx, q, state, time.Now().Add(-5*time.Minute)).Scan(
+		&pkce.ID,
+		&pkce.ProfileReference,
+		&pkce.State,
+		&pkce.CodeVerifier,
+		&pkce.CodeChallange,
+		&pkce.CodeChallangeMethod,
+		&pkce.CreatedAt,
 	)
+
 }
 
 func (x *PGStore) CleanPKCE(ctx context.Context) error {
 	return x.transaction(
 		ctx, func(ctx context.Context, tx pgx.Tx) error {
 			q := `delete from pkces where created_at < $1`
-			//q := tx.Rebind(`delete from pkces where created_at < ?`)
 			logr.FromContextOrDiscard(ctx).Info(q)
 			_, err := tx.Exec(ctx, q, time.Now().Add(-(5*time.Minute + 1*time.Second)))
 			if err != nil {
 				return err
 			}
-			//rows, err := tx.ExecContext(ctx, q, time.Now().Add(-(5*time.Minute + 1*time.Second)))
-			//if err != nil {
-			//	return err
-			//}
-			//affected, err := rows.RowsAffected()
-			//if err != nil {
-			//	return err
-			//}
-			//logr.FromContextOrDiscard(ctx).Info(q, "deleted", affected)
 			return nil
 		},
 	)

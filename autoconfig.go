@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/gofrs/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/pkg/errors"
@@ -104,9 +105,9 @@ func (r *EVESSO) Store() DataStore {
 	return r.store
 }
 
-func (r *EVESSO) TokenSource(profileID ProfileID, CharacterName string, Scopes ...string) (*ssoTokenSource, error) {
+func (r *EVESSO) TokenSource(profileID uuid.UUID, CharacterName string, Scopes ...string) (*ssoTokenSource, error) {
 	return &ssoTokenSource{
-		t:           nil,
+		token:       nil,
 		ctx:         context.WithValue(r.ctx, oauth2.HTTPClient, r.client),
 		oauthConfig: r.OAuth2(Scopes...),
 		jwkfn: func() (jwk.Set, error) {
@@ -120,7 +121,7 @@ func (r *EVESSO) TokenSource(profileID ProfileID, CharacterName string, Scopes .
 
 func (r *EVESSO) CharacterSource(character Character) (*ssoTokenSource, error) {
 	return &ssoTokenSource{
-		t:           nil,
+		token:       nil,
 		ctx:         context.WithValue(r.ctx, oauth2.HTTPClient, r.client),
 		oauthConfig: r.OAuth2(character.GetScopes()...),
 		jwkfn: func() (jwk.Set, error) {

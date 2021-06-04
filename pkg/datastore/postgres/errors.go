@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"strings"
 
-	"github.com/go-sql-driver/mysql"
+	//"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgconn"
-	"github.com/lib/pq"
+	//"github.com/lib/pq"
 	"github.com/pkg/errors"
 )
 
@@ -39,18 +39,18 @@ func HandleError(err error) error {
 		case "40001": // "serialization_failure"
 			return errors.Wrap(ErrConcurrentUpdate, err.Error())
 		}
-	case *pq.Error:
-		switch e.Code {
-		case "23505": // "unique_violation"
-			return errors.Wrap(ErrUniqueViolation, e.Error())
-		case "40001": // "serialization_failure"
-			return errors.Wrap(ErrConcurrentUpdate, e.Error())
-		}
-	case *mysql.MySQLError:
-		switch e.Number {
-		case 1062:
-			return errors.Wrap(ErrUniqueViolation, err.Error())
-		}
+	//case *pq.Error:
+	//	switch e.Code {
+	//	case "23505": // "unique_violation"
+	//		return errors.Wrap(ErrUniqueViolation, e.Error())
+	//	case "40001": // "serialization_failure"
+	//		return errors.Wrap(ErrConcurrentUpdate, e.Error())
+	//	}
+	//case *mysql.MySQLError:
+	//	switch e.Number {
+	//	case 1062:
+	//		return errors.Wrap(ErrUniqueViolation, err.Error())
+	//	}
 	case *pgconn.PgError:
 		switch e.Code {
 		case "23505": // "unique_violation"

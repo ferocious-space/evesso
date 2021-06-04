@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/gofrs/uuid"
+	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v4"
 	"golang.org/x/oauth2"
 
@@ -14,11 +16,11 @@ import (
 
 type Character struct {
 	sync.Mutex `db:"-"`
-	persister  *PGStore `db:"-"`
+	store      *PGStore `db:"-"`
 
-	ID string `json:"id" db:"id"`
+	ID uuid.UUID `json:"id" db:"id"`
 
-	ProfileReference evesso.ProfileID `json:"profile_ref" db:"profile_ref"`
+	ProfileReference uuid.UUID `json:"profile_ref" db:"profile_ref"`
 
 	//ESI CharacterID
 	CharacterID int32 `json:"character_id" db:"character_id"`
@@ -33,7 +35,7 @@ type Character struct {
 	RefreshToken string `json:"refresh_token" db:"refresh_token"`
 
 	//Scopes is the scopes the refresh token was issued with
-	Scopes Scope `json:"scopes" db:"scopes"`
+	Scopes pgtype.TextArray `json:"scopes" db:"scopes"`
 
 	Active bool `json:"active" db:"active"`
 
@@ -41,7 +43,7 @@ type Character struct {
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
 
-func (c *Character) GetID() string {
+func (c *Character) GetID() uuid.UUID {
 	return c.ID
 }
 
@@ -61,69 +63,32 @@ func (c *Character) IsActive() bool {
 	return c.Active
 }
 
-func (c *Character) GetProfileID() evesso.ProfileID {
-	return evesso.ProfileID(c.ProfileReference)
+func (c *Character) GetProfileID() uuid.UUID {
+	return c.ProfileReference
 }
 
 func (c *Character) GetScopes() []string {
-	return c.Scopes.Get()
+	out := make([]string, 0)
+	_ = c.Scopes.AssignTo(&out)
+	return out
 }
 
-//func (c *Character) Reload(ctx context.Context) error {
-//	return c.persister.transaction(
-//		ctx, func(ctx context.Context, tx pgx.Tx) error {
-//			query := make(map[string]interface{})
-//			queryParams := make([]string, 0)
-//			dataQuery := `SELECT id, profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at FROM characters WHERE %s LIMIT 1`
-//
-//			if c.CharacterID > 0 {
-//				query["character_id"] = c.CharacterID
-//				queryParams = append(queryParams, `character_id = :character_i`)
-//			}
-//			if len(c.CharacterName) > 0 {
-//				query["character_name"] = c.CharacterName
-//				queryParams = append(queryParams, `character_name = :character_name`)
-//			}
-//			if len(c.Owner) > 0 {
-//				query["owner"] = c.Owner
-//				queryParams = append(queryParams, `owner = :owner`)
-//			}
-//			query["profile_ref"] = c.ProfileReference
-//			queryParams = append(queryParams, `profile_ref = :profile_ref`)
-//			query["active"] = true
-//			queryParams = append(queryParams, `active = :active`)
-//
-//			q := fmt.Sprintf(dataQuery, strings.Join(queryParams, " AND "))
-//			logr.FromContextOrDiscard(ctx).Info(q, "id", c.ProfileReference, "cid", c.ID)
-//			namedContext, err := tx.PrepareNamedContext(ctx, q)
-//			if err != nil {
-//				return err
-//			}
-//			return namedContext.QueryRowxContext(ctx, query).StructScan(c)
-//		},
-//	)
-//}
-
 func (c *Character) GetProfile(ctx context.Context) (evesso.Profile, error) {
-	return c.persister.GetProfile(ctx, evesso.ProfileID(c.ProfileReference))
+	return c.store.GetProfile(ctx, c.ProfileReference)
 }
 
 func (c *Character) UpdateToken(ctx context.Context, RefreshToken string) error {
+	c.Lock()
+	defer c.Unlock()
 	c.RefreshToken = RefreshToken
-	return c.persister.transaction(
+	return c.store.transaction(
 		ctx, func(ctx context.Context, tx pgx.Tx) error {
 			q := "update characters set refresh_token = $1, updated_at = $2 where id = $3"
-			//q := tx.Rebind("update characters set refresh_token = ? , updated_at = ? where id = ?")
 			logr.FromContextOrDiscard(ctx).V(1).Info(q, "id", c.ID, "profile", c.ProfileReference)
 			if _, err := tx.Exec(ctx, q, RefreshToken, time.Now(), c.ID); err != nil {
 				return err
 			}
 			return nil
-			//_, err := tx.ExecContext(ctx, q, RefreshToken, time.Now(), c.ID)
-			//if err != nil {
-			//	return err
-			//}
-			//return err
 		},
 	)
 }
@@ -133,20 +98,14 @@ func (c *Character) UpdateActiveState(ctx context.Context, active bool) error {
 	defer c.Unlock()
 	old := c.Active
 	c.Active = active
-	err := c.persister.transaction(
+	err := c.store.transaction(
 		ctx, func(ctx context.Context, tx pgx.Tx) error {
 			q := "update characters set active = $1, updated_at = $2 where id = $3"
-			//q := tx.Rebind("update characters set active = ?, updated_at = ? where id = ?")
 			logr.FromContextOrDiscard(ctx).V(1).Info(q, "id", c.ID, "profile", c.ProfileReference)
 			if _, err := tx.Exec(ctx, q, active, time.Now(), c.ID); err != nil {
 				return err
 			}
 			return nil
-			//_, err := tx.ExecContext(ctx, q, active, time.Now(), c.ID)
-			//if err != nil {
-			//	return err
-			//}
-			//return err
 		},
 	)
 	if err != nil {
@@ -157,23 +116,29 @@ func (c *Character) UpdateActiveState(ctx context.Context, active bool) error {
 }
 
 func (c *Character) Token() (*oauth2.Token, error) {
+	timeout, cancelFunc := context.WithTimeout(context.TODO(), 1*time.Minute)
+	defer cancelFunc()
+	tx, err := c.store.Connection(timeout)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Release()
+	q := "select refresh_token from characters where id = $1"
+	err = tx.QueryRow(timeout, q, c.ID).Scan(&c.RefreshToken)
+	if err != nil {
+		return nil, err
+	}
 	return &oauth2.Token{RefreshToken: c.RefreshToken, Expiry: time.Now()}, nil
 }
 
 func (c *Character) Delete(ctx context.Context) error {
-	return c.persister.transaction(
+	return c.store.transaction(
 		ctx, func(ctx context.Context, tx pgx.Tx) error {
 			q := `DELETE FROM characters WHERE id = $1`
-			//q := tx.Rebind("delete from characters where id = ?")
 			logr.FromContextOrDiscard(ctx).V(1).Info(q, "id", c.ID, "profile", c.ProfileReference)
 			if _, err := tx.Exec(ctx, q, c.ID); err != nil {
 				return err
 			}
-			//_, err := tx.ExecContext(ctx, q, c.ID)
-			//if err != nil {
-			//	return err
-			//}
-			//return err
 			return nil
 		},
 	)
