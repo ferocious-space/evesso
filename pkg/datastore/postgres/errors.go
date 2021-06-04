@@ -6,6 +6,8 @@ import (
 
 	//"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgconn"
+	"github.com/jackc/pgx/v4"
+
 	//"github.com/lib/pq"
 	"github.com/pkg/errors"
 )
@@ -27,17 +29,21 @@ func HandleError(err error) error {
 		return nil
 	}
 
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errors.WithStack(ErrNoRows)
+	}
+
 	if errors.Is(err, sql.ErrNoRows) {
 		return errors.WithStack(ErrNoRows)
 	}
 	switch e := errors.Cause(err).(type) {
-	case interface{ SQLState() string }:
-		switch e.SQLState() {
-		case "23505": // "unique_violation"
-			return errors.Wrap(ErrUniqueViolation, err.Error())
-		case "40001": // "serialization_failure"
-			return errors.Wrap(ErrConcurrentUpdate, err.Error())
-		}
+	//case interface{ SQLState() string }:
+	//	switch e.SQLState() {
+	//	case "23505": // "unique_violation"
+	//		return errors.Wrap(ErrUniqueViolation, err.Error())
+	//	case "40001": // "serialization_failure"
+	//		return errors.Wrap(ErrConcurrentUpdate, err.Error())
+	//	}
 	//case *pq.Error:
 	//	switch e.Code {
 	//	case "23505": // "unique_violation"
