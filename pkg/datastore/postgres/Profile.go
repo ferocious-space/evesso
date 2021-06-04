@@ -138,7 +138,7 @@ func (p *Profile) CreateCharacter(ctx context.Context, token *oauth2.Token) (eve
 	}
 	sort.Strings(scope)
 	character := &Character{
-		ID:               uuid.NewV5(p.ID, characterName),
+		ID:               uuid.NewV5(p.ID, strings.Join(append(scope, owner), ", ")),
 		store:            p.store,
 		ProfileReference: p.ID,
 		CharacterID:      characterID,

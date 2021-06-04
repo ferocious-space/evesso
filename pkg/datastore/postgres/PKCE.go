@@ -88,9 +88,9 @@ func MakePKCE(profile *Profile) *PKCE {
 	shaEncodedVerifier := sha.Sum([]byte(encodedVerifier))
 	challange := base64.RawURLEncoding.EncodeToString(shaEncodedVerifier)
 	return &PKCE{
-		ID:                  uuid.NewV5(profile.ID, profile.ProfileName),
+		ID:                  uuid.Must(uuid.NewV4()),
 		ProfileReference:    profile.ID,
-		State:               uuid.NewV5(profile.ID, "state"),
+		State:               uuid.Must(uuid.NewV4()),
 		CodeVerifier:        encodedVerifier,
 		CodeChallange:       challange,
 		CodeChallangeMethod: "S256",
