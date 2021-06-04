@@ -313,7 +313,31 @@ func (x *PGStore) FindCharacter(ctx context.Context, characterID int32, characte
 	return profile, character, nil
 }
 
-func (x *PGStore) GetPKCE(ctx context.Context, state string) (evesso.PKCE, error) {
+func (x *PGStore) GetPKCE(ctx context.Context, pkceID uuid.UUID) (evesso.PKCE, error) {
+	pkce := new(PKCE)
+	tx, err := x.Connection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Release()
+	return pkce, tx.QueryRow(
+		ctx,
+		"SELECT id, profile_ref, state, code_verifier, code_challange, code_challange_method, scopes, created_at FROM pkces WHERE id = $1 AND created_at > $2",
+		pkceID,
+		time.Now().Add(-5*time.Minute),
+	).Scan(
+		&pkce.ID,
+		&pkce.ProfileReference,
+		&pkce.State,
+		&pkce.CodeVerifier,
+		&pkce.CodeChallange,
+		&pkce.CodeChallangeMethod,
+		&pkce.Scopes,
+		&pkce.CreatedAt,
+	)
+}
+
+func (x *PGStore) FindPKCE(ctx context.Context, state string) (evesso.PKCE, error) {
 	pkce := new(PKCE)
 	pkce.store = x
 	tx, err := x.Connection(ctx)
@@ -322,7 +346,7 @@ func (x *PGStore) GetPKCE(ctx context.Context, state string) (evesso.PKCE, error
 	}
 	defer tx.Release()
 
-	q := "SELECT id, profile_ref, state, code_verifier, code_challange, code_challange_method, created_at from pkces where state = $1 and created_at > $2"
+	q := "SELECT id, profile_ref, state, code_verifier, code_challange, code_challange_method, scopes, created_at from pkces where state = $1 and created_at > $2"
 	logr.FromContextOrDiscard(ctx).Info(q, "state", state)
 	return pkce, HandleError(
 		tx.QueryRow(ctx, q, state, time.Now().Add(-5*time.Minute)).Scan(
@@ -332,6 +356,7 @@ func (x *PGStore) GetPKCE(ctx context.Context, state string) (evesso.PKCE, error
 			&pkce.CodeVerifier,
 			&pkce.CodeChallange,
 			&pkce.CodeChallangeMethod,
+			&pkce.Scopes,
 			&pkce.CreatedAt,
 		),
 	)

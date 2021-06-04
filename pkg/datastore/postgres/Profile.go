@@ -176,18 +176,16 @@ func (p *Profile) CreateCharacter(ctx context.Context, token *oauth2.Token) (eve
 	)
 }
 
-func (p *Profile) CreatePKCE(ctx context.Context) (evesso.PKCE, error) {
+func (p *Profile) CreatePKCE(ctx context.Context, scopes ...string) (evesso.PKCE, error) {
 	pkce := MakePKCE(p)
 	return pkce, p.store.transaction(
 		ctx, func(ctx context.Context, tx pgx.Tx) error {
-			q := `insert into pkces (id, profile_ref, state, code_verifier, code_challange, created_at) VALUES ($1,$2,$3,$4,$5,$6)`
+			q := `insert into pkces (id, profile_ref, state, code_verifier, code_challange,scopes, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`
 			logr.FromContextOrDiscard(ctx).Info(q, "id", pkce.ID, "profile", p.ID)
-			if _, err := tx.Exec(ctx, q, pkce.ID, pkce.ProfileReference, pkce.State, pkce.CodeVerifier, pkce.CodeChallange, pkce.CreatedAt); err != nil {
+			if _, err := tx.Exec(ctx, q, pkce.ID, pkce.ProfileReference, pkce.State, pkce.CodeVerifier, pkce.CodeChallange, MakeScopes(scopes), pkce.CreatedAt); err != nil {
 				return err
 			}
 			return nil
-			//_, err := tx.NamedExecContext(ctx, q, pkce)
-			//return err
 		},
 	)
 }
@@ -196,10 +194,7 @@ func (p *Profile) Delete(ctx context.Context) error {
 	return p.store.transaction(
 		ctx, func(ctx context.Context, tx pgx.Tx) error {
 			q := "DELETE FROM profiles WHERE id = $1"
-			//q := tx.Rebind("delete from profiles where id = ?")
 			logr.FromContextOrDiscard(ctx).V(1).Info(q, "id", p.ID)
-			//_, err := tx.ExecContext(ctx, q, p.ID)
-			//return err
 			if _, err := tx.Exec(ctx, q, p.ID); err != nil {
 				return err
 			}

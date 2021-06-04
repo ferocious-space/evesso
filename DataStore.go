@@ -20,7 +20,8 @@ type ProfileStore interface {
 	FindCharacter(ctx context.Context, characterID int32, characterName string, Owner string) (Profile, Character, error)
 	DeleteProfile(ctx context.Context, profileID uuid.UUID) error
 
-	GetPKCE(ctx context.Context, state string) (PKCE, error)
+	GetPKCE(ctx context.Context, pkceID uuid.UUID) (PKCE, error)
+	FindPKCE(ctx context.Context, state string) (PKCE, error)
 	CleanPKCE(ctx context.Context) error
 }
 
@@ -30,7 +31,7 @@ type Profile interface {
 
 	GetCharacter(ctx context.Context, characterID int32, characterName string, Owner string, Scopes []string) (Character, error)
 	CreateCharacter(ctx context.Context, token *oauth2.Token) (Character, error)
-	CreatePKCE(ctx context.Context) (PKCE, error)
+	CreatePKCE(ctx context.Context, scopes ...string) (PKCE, error)
 	Delete(ctx context.Context) error
 }
 
@@ -41,6 +42,7 @@ type PKCE interface {
 	GetCodeVerifier() string
 	GetCodeChallange() string
 	GetCodeChallangeMethod() string
+	GetScopes() []string
 
 	GetProfile(ctx context.Context) (Profile, error)
 	Destroy(ctx context.Context) error

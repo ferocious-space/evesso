@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v4"
 
 	"github.com/ferocious-space/evesso"
@@ -21,12 +22,19 @@ type PKCE struct {
 
 	ProfileReference uuid.UUID `json:"profile_id" db:"profile_ref"`
 
-	State               uuid.UUID `json:"state" db:"state"`
-	CodeVerifier        string    `json:"code_verifier" db:"code_verifier"`
-	CodeChallange       string    `json:"code_challange" db:"code_challange"`
-	CodeChallangeMethod string    `json:"code_challange_method" db:"code_challange_method"`
+	State               uuid.UUID        `json:"state" db:"state"`
+	CodeVerifier        string           `json:"code_verifier" db:"code_verifier"`
+	CodeChallange       string           `json:"code_challange" db:"code_challange"`
+	CodeChallangeMethod string           `json:"code_challange_method" db:"code_challange_method"`
+	Scopes              pgtype.TextArray `json:"scopes" db:"scopes"`
 
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
+}
+
+func (p *PKCE) GetScopes() []string {
+	out := []string{}
+	_ = p.Scopes.AssignTo(&out)
+	return out
 }
 
 func (p *PKCE) GetID() uuid.UUID {

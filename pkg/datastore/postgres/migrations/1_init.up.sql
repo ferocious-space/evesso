@@ -20,6 +20,7 @@ create table if not exists pkces
     code_verifier         varchar(255)                                   not null,
     code_challange        varchar(255)                                   not null,
     code_challange_method varchar(255) default 'S256'::character varying not null,
+    scopes                text[],
     created_at            timestamp                                      not null,
     constraint pkces_pkey
         primary key (id),

@@ -148,7 +148,7 @@ func (o *ssoTokenSource) AuthUrl() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	pkce, err := profile.CreatePKCE(o.ctx)
+	pkce, err := profile.CreatePKCE(o.ctx, o.oauthConfig.Scopes...)
 	if err != nil {
 		return "", err
 	}

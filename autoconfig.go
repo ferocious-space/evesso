@@ -133,11 +133,20 @@ func (r *EVESSO) CharacterSource(character Character) (*ssoTokenSource, error) {
 	}, nil
 }
 
+func (r *EVESSO) AuthUrl(pkce PKCE) string {
+	return r.OAuth2(pkce.GetScopes()...).AuthCodeURL(
+		pkce.GetState().String(),
+		oauth2.AccessTypeOffline,
+		oauth2.SetAuthURLParam("code_challange", pkce.GetCodeChallange()),
+		oauth2.SetAuthURLParam("code_challange_method", pkce.GetCodeChallangeMethod()),
+	)
+}
+
 func (r *EVESSO) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	encoder := json.NewEncoder(w)
 	code := req.FormValue("code")
 	state := req.FormValue("state")
-	pkce, err := r.store.GetPKCE(req.Context(), state)
+	pkce, err := r.store.FindPKCE(req.Context(), state)
 	if err != nil {
 		//we have no state for this request, discard it
 		return
@@ -203,7 +212,7 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 
 			code := c.Request().FormValue("code")
 			state := c.Request().FormValue("state")
-			pkce, err := r.store.GetPKCE(ctx, state)
+			pkce, err := r.store.FindPKCE(ctx, state)
 			if err != nil {
 				//we have no state for this request, discard it
 				return &echo.HTTPError{
