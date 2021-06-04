@@ -82,17 +82,19 @@ func (p *Profile) GetCharacter(ctx context.Context, characterID int32, character
 	q := fmt.Sprintf(dataQuery, strings.Join(whereParams, " AND "))
 	logr.FromContextOrDiscard(ctx).Info(q)
 
-	return character, tx.QueryRow(ctx, q, queryParams...).Scan(
-		&character.ID,
-		&character.ProfileReference,
-		&character.CharacterID,
-		&character.CharacterName,
-		&character.Owner,
-		&character.RefreshToken,
-		&character.Scopes,
-		&character.Active,
-		&character.CreatedAt,
-		&character.UpdatedAt,
+	return character, HandleError(
+		tx.QueryRow(ctx, q, queryParams...).Scan(
+			&character.ID,
+			&character.ProfileReference,
+			&character.CharacterID,
+			&character.CharacterName,
+			&character.Owner,
+			&character.RefreshToken,
+			&character.Scopes,
+			&character.Active,
+			&character.CreatedAt,
+			&character.UpdatedAt,
+		),
 	)
 
 }

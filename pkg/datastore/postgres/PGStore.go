@@ -88,13 +88,15 @@ func (x *PGStore) Connection(ctx context.Context) (*pgxpool.Conn, error) {
 }
 
 func (x *PGStore) transaction(ctx context.Context, f func(ctx context.Context, tx pgx.Tx) error) error {
-	return x.pool.BeginTxFunc(
-		ctx, pgx.TxOptions{
-			IsoLevel:   pgx.RepeatableRead,
-			AccessMode: pgx.ReadWrite,
-		}, func(tx pgx.Tx) error {
-			return f(ctx, tx)
-		},
+	return HandleError(
+		x.pool.BeginTxFunc(
+			ctx, pgx.TxOptions{
+				IsoLevel:   pgx.RepeatableRead,
+				AccessMode: pgx.ReadWrite,
+			}, func(tx pgx.Tx) error {
+				return f(ctx, tx)
+			},
+		),
 	)
 }
 
@@ -222,7 +224,7 @@ func (x *PGStore) GetProfile(ctx context.Context, profileID uuid.UUID) (evesso.P
 	defer tx.Release()
 	q := "SELECT id,profile_name,created_at,updated_at FROM profiles WHERE id = $1"
 	logr.FromContextOrDiscard(ctx).Info(q, "id", profileID)
-	return profile, tx.QueryRow(ctx, q, profileID).Scan(&profile.ID, &profile.ProfileName, &profile.CreatedAt, &profile.UpdatedAt)
+	return profile, HandleError(tx.QueryRow(ctx, q, profileID).Scan(&profile.ID, &profile.ProfileName, &profile.CreatedAt, &profile.UpdatedAt))
 
 }
 
@@ -237,7 +239,7 @@ func (x *PGStore) FindProfile(ctx context.Context, profileName string) (evesso.P
 
 	q := `SELECT id,profile_name,created_at,updated_at FROM profiles where profile_name = $1`
 	logr.FromContextOrDiscard(ctx).Info(q, "name", profileName)
-	return profile, tx.QueryRow(ctx, q, profileName).Scan(&profile.ID, &profile.ProfileName, &profile.CreatedAt, &profile.UpdatedAt)
+	return profile, HandleError(tx.QueryRow(ctx, q, profileName).Scan(&profile.ID, &profile.ProfileName, &profile.CreatedAt, &profile.UpdatedAt))
 
 }
 
@@ -322,14 +324,16 @@ func (x *PGStore) GetPKCE(ctx context.Context, state string) (evesso.PKCE, error
 
 	q := "SELECT id, profile_ref, state, code_verifier, code_challange, code_challange_method, created_at from pkces where state = $1 and created_at > $2"
 	logr.FromContextOrDiscard(ctx).Info(q, "state", state)
-	return pkce, tx.QueryRow(ctx, q, state, time.Now().Add(-5*time.Minute)).Scan(
-		&pkce.ID,
-		&pkce.ProfileReference,
-		&pkce.State,
-		&pkce.CodeVerifier,
-		&pkce.CodeChallange,
-		&pkce.CodeChallangeMethod,
-		&pkce.CreatedAt,
+	return pkce, HandleError(
+		tx.QueryRow(ctx, q, state, time.Now().Add(-5*time.Minute)).Scan(
+			&pkce.ID,
+			&pkce.ProfileReference,
+			&pkce.State,
+			&pkce.CodeVerifier,
+			&pkce.CodeChallange,
+			&pkce.CodeChallangeMethod,
+			&pkce.CreatedAt,
+		),
 	)
 
 }

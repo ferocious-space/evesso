@@ -30,7 +30,6 @@ func HandleError(err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
 		return errors.WithStack(ErrNoRows)
 	}
-
 	switch e := errors.Cause(err).(type) {
 	case interface{ SQLState() string }:
 		switch e.SQLState() {

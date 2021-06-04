@@ -126,7 +126,7 @@ func (c *Character) Token() (*oauth2.Token, error) {
 	q := "select refresh_token from characters where id = $1"
 	err = tx.QueryRow(timeout, q, c.ID).Scan(&c.RefreshToken)
 	if err != nil {
-		return nil, err
+		return nil, HandleError(err)
 	}
 	return &oauth2.Token{RefreshToken: c.RefreshToken, Expiry: time.Now()}, nil
 }
