@@ -18,53 +18,71 @@ type Character struct {
 	sync.Mutex `db:"-"`
 	store      *PGStore `db:"-"`
 
-	ID uuid.UUID `json:"id" db:"id"`
+	ID pgtype.UUID `json:"id" db:"id"`
 
-	ProfileReference uuid.UUID `json:"profile_ref" db:"profile_ref"`
+	ProfileReference pgtype.UUID `json:"profile_ref" db:"profile_ref"`
 
 	//ESI CharacterID
-	CharacterID int32 `json:"character_id" db:"character_id"`
+	CharacterID pgtype.Int4 `json:"character_id" db:"character_id"`
 
 	//ESI CharacterName
-	CharacterName string `json:"name" db:"character_name"`
+	CharacterName pgtype.Text `json:"name" db:"character_name"`
 
 	//ESI CharacterOwner
-	Owner string `json:"owner" db:"owner"`
+	Owner pgtype.Text `json:"owner" db:"owner"`
 
 	//RefreshToken is oauth2 refresh token
-	RefreshToken string `json:"refresh_token" db:"refresh_token"`
+	RefreshToken pgtype.Text `json:"refresh_token" db:"refresh_token"`
 
 	//Scopes is the scopes the refresh token was issued with
 	Scopes pgtype.TextArray `json:"scopes" db:"scopes"`
 
-	Active bool `json:"active" db:"active"`
+	Active pgtype.Bool `json:"active" db:"active"`
 
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at" db:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at" db:"updated_at"`
 }
 
 func (c *Character) GetID() uuid.UUID {
-	return c.ID
+	cid := []byte{}
+	err := c.ID.AssignTo(&cid)
+	if err != nil {
+		return uuid.Nil
+	}
+	return uuid.FromBytesOrNil(cid)
 }
 
 func (c *Character) GetCharacterName() string {
-	return c.CharacterName
+	name := ""
+	_ = c.CharacterName.AssignTo(&name)
+	return name
 }
 
 func (c *Character) GetCharacterID() int32 {
-	return c.CharacterID
+	id := int32(0)
+	_ = c.CharacterID.AssignTo(&id)
+	return id
 }
 
 func (c *Character) GetOwner() string {
-	return c.Owner
+	owner := ""
+	_ = c.Owner.AssignTo(&owner)
+	return owner
 }
 
 func (c *Character) IsActive() bool {
-	return c.Active
+	active := false
+	_ = c.Active.AssignTo(&active)
+	return active
 }
 
 func (c *Character) GetProfileID() uuid.UUID {
-	return c.ProfileReference
+	cid := []byte{}
+	err := c.ProfileReference.AssignTo(&cid)
+	if err != nil {
+		return uuid.Nil
+	}
+	return uuid.FromBytesOrNil(cid)
 }
 
 func (c *Character) GetScopes() []string {
@@ -74,18 +92,21 @@ func (c *Character) GetScopes() []string {
 }
 
 func (c *Character) GetProfile(ctx context.Context) (evesso.Profile, error) {
-	return c.store.GetProfile(ctx, c.ProfileReference)
+	return c.store.GetProfile(ctx, c.GetProfileID())
 }
 
 func (c *Character) UpdateToken(ctx context.Context, RefreshToken string) error {
 	c.Lock()
 	defer c.Unlock()
-	c.RefreshToken = RefreshToken
+	err := c.RefreshToken.Set(RefreshToken)
+	if err != nil {
+		return err
+	}
 	return c.store.transaction(
 		ctx, func(ctx context.Context, tx pgx.Tx) error {
 			q := "update characters set refresh_token = $1, updated_at = $2 where id = $3"
 			logr.FromContextOrDiscard(ctx).V(1).Info(q, "id", c.ID, "profile", c.ProfileReference)
-			if _, err := tx.Exec(ctx, q, RefreshToken, time.Now(), c.ID); err != nil {
+			if _, err := tx.Exec(ctx, q, c.RefreshToken, time.Now(), c.ID); err != nil {
 				return err
 			}
 			return nil
@@ -96,9 +117,16 @@ func (c *Character) UpdateToken(ctx context.Context, RefreshToken string) error 
 func (c *Character) UpdateActiveState(ctx context.Context, active bool) error {
 	c.Lock()
 	defer c.Unlock()
-	old := c.Active
-	c.Active = active
-	err := c.store.transaction(
+	old := false
+	err := c.Active.AssignTo(&old)
+	if err != nil {
+		return err
+	}
+	err = c.Active.Set(active)
+	if err != nil {
+		return err
+	}
+	err = c.store.transaction(
 		ctx, func(ctx context.Context, tx pgx.Tx) error {
 			q := "update characters set active = $1, updated_at = $2 where id = $3"
 			logr.FromContextOrDiscard(ctx).V(1).Info(q, "id", c.ID, "profile", c.ProfileReference)
@@ -109,7 +137,10 @@ func (c *Character) UpdateActiveState(ctx context.Context, active bool) error {
 		},
 	)
 	if err != nil {
-		c.Active = old
+		err := c.Active.Set(old)
+		if err != nil {
+			return err
+		}
 		return err
 	}
 	return nil
@@ -128,7 +159,11 @@ func (c *Character) Token() (*oauth2.Token, error) {
 	if err != nil {
 		return nil, HandleError(err)
 	}
-	return &oauth2.Token{RefreshToken: c.RefreshToken, Expiry: time.Now()}, nil
+	refreshToken := ""
+	if err := c.RefreshToken.AssignTo(&refreshToken); err != nil {
+		return nil, err
+	}
+	return &oauth2.Token{RefreshToken: refreshToken, Expiry: time.Now()}, nil
 }
 
 func (c *Character) Delete(ctx context.Context) error {

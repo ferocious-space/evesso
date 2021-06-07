@@ -18,17 +18,17 @@ import (
 type PKCE struct {
 	store *PGStore `db:"-"`
 
-	ID uuid.UUID `json:"id" db:"id"`
+	ID pgtype.UUID `json:"id" db:"id"`
 
-	ProfileReference uuid.UUID `json:"profile_id" db:"profile_ref"`
+	ProfileReference pgtype.UUID `json:"profile_id" db:"profile_ref"`
 
-	State               uuid.UUID        `json:"state" db:"state"`
-	CodeVerifier        string           `json:"code_verifier" db:"code_verifier"`
-	CodeChallange       string           `json:"code_challange" db:"code_challange"`
-	CodeChallangeMethod string           `json:"code_challange_method" db:"code_challange_method"`
+	State               pgtype.UUID      `json:"state" db:"state"`
+	CodeVerifier        pgtype.Text      `json:"code_verifier" db:"code_verifier"`
+	CodeChallange       pgtype.Text      `json:"code_challange" db:"code_challange"`
+	CodeChallangeMethod pgtype.Text      `json:"code_challange_method" db:"code_challange_method"`
 	Scopes              pgtype.TextArray `json:"scopes" db:"scopes"`
 
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at" db:"created_at"`
 }
 
 func (p *PKCE) GetScopes() []string {
@@ -38,27 +38,48 @@ func (p *PKCE) GetScopes() []string {
 }
 
 func (p *PKCE) GetID() uuid.UUID {
-	return p.ID
+	cid := []byte{}
+	err := p.ID.AssignTo(&cid)
+	if err != nil {
+		return uuid.Nil
+	}
+	return uuid.FromBytesOrNil(cid)
 }
 
 func (p *PKCE) GetProfileID() uuid.UUID {
-	return p.ProfileReference
+	cid := []byte{}
+	err := p.ProfileReference.AssignTo(&cid)
+	if err != nil {
+		return uuid.Nil
+	}
+	return uuid.FromBytesOrNil(cid)
 }
 
 func (p *PKCE) GetState() uuid.UUID {
-	return p.State
+	cid := []byte{}
+	err := p.State.AssignTo(&cid)
+	if err != nil {
+		return uuid.Nil
+	}
+	return uuid.FromBytesOrNil(cid)
 }
 
 func (p *PKCE) GetCodeVerifier() string {
-	return p.CodeVerifier
+	out := ""
+	_ = p.CodeVerifier.AssignTo(&out)
+	return out
 }
 
 func (p *PKCE) GetCodeChallange() string {
-	return p.CodeChallange
+	out := ""
+	_ = p.CodeChallange.AssignTo(&out)
+	return out
 }
 
 func (p *PKCE) GetCodeChallangeMethod() string {
-	return p.CodeChallangeMethod
+	out := ""
+	_ = p.CodeChallangeMethod.AssignTo(&out)
+	return out
 }
 
 func (p *PKCE) GetProfile(ctx context.Context) (evesso.Profile, error) {
@@ -81,7 +102,12 @@ func (p *PKCE) Destroy(ctx context.Context) error {
 }
 
 func (p *PKCE) Time() time.Time {
-	return p.CreatedAt
+	t := time.Time{}
+	err := p.CreatedAt.AssignTo(&t)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 func MakePKCE(profile *Profile) *PKCE {
@@ -95,15 +121,22 @@ func MakePKCE(profile *Profile) *PKCE {
 	encodedVerifier := base64.RawURLEncoding.EncodeToString(verifier)
 	shaEncodedVerifier := sha.Sum([]byte(encodedVerifier))
 	challange := base64.RawURLEncoding.EncodeToString(shaEncodedVerifier)
-	return &PKCE{
-		ID:                  uuid.Must(uuid.NewV4()),
-		ProfileReference:    profile.ID,
-		State:               uuid.Must(uuid.NewV4()),
-		CodeVerifier:        encodedVerifier,
-		CodeChallange:       challange,
-		CodeChallangeMethod: "S256",
-		CreatedAt:           time.Now(),
+	pkce := &PKCE{
+		ProfileReference: profile.ID,
 	}
+	if err := pkce.CreatedAt.Set(time.Now()); err != nil {
+		return nil
+	}
+	if err := pkce.CodeVerifier.Set(encodedVerifier); err != nil {
+		return nil
+	}
+	if err := pkce.CodeChallange.Set(challange); err != nil {
+		return nil
+	}
+	if err := pkce.CodeChallangeMethod.Set("S256"); err != nil {
+		return nil
+	}
+	return pkce
 }
 
 var _ evesso.PKCE = &PKCE{}

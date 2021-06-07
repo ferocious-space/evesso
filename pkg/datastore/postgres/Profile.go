@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v4"
 	"github.com/lestrrat-go/jwx/jwt"
 	"golang.org/x/oauth2"
@@ -21,21 +22,28 @@ type Profile struct {
 	sync.Mutex `db:"-"`
 	store      *PGStore `db:"-"`
 
-	ID uuid.UUID `json:"id" db:"id"`
+	ID pgtype.UUID `json:"id" db:"id"`
 
 	//ProfileType can be used to define custom profile types , e.g. service bot that uses multiple characters to query esi for information
-	ProfileName string `json:"profile_name" db:"profile_name"`
+	ProfileName pgtype.Text `json:"profile_name" db:"profile_name"`
 
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+	CreatedAt pgtype.Timestamptz `json:"created_at" db:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at" db:"updated_at"`
 }
 
 func (p *Profile) GetID() uuid.UUID {
-	return p.ID
+	uid := []byte{}
+	err := p.ID.AssignTo(&uid)
+	if err != nil {
+		return uuid.Nil
+	}
+	return uuid.FromBytesOrNil(uid)
 }
 
 func (p *Profile) GetName() string {
-	return p.ProfileName
+	name := ""
+	_ = p.ProfileName.AssignTo(&name)
+	return name
 }
 func (p *Profile) GetCharacter(ctx context.Context, characterID int32, characterName string, Owner string, Scopes []string) (evesso.Character, error) {
 	character := new(Character)
@@ -140,25 +148,39 @@ func (p *Profile) CreateCharacter(ctx context.Context, token *oauth2.Token) (eve
 	}
 	sort.Strings(scope)
 	character := &Character{
-		ID:               uuid.NewV5(p.ID, strings.Join(append(scope, owner), ", ")),
-		store:            p.store,
-		ProfileReference: p.ID,
-		CharacterID:      characterID,
-		CharacterName:    characterName,
-		Owner:            owner,
-		RefreshToken:     token.RefreshToken,
-		Active:           true,
-		Scopes:           MakeScopes(scope),
-		CreatedAt:        time.Now(),
-		UpdatedAt:        time.Now(),
+		store:  p.store,
+		Scopes: MakeScopes(scope),
+	}
+	if err := character.CreatedAt.Set(time.Now()); err != nil {
+		return nil, err
+	}
+	if err := character.UpdatedAt.Set(time.Now()); err != nil {
+		return nil, err
+	}
+	if err := character.ProfileReference.Set(p.ID); err != nil {
+		return nil, err
+	}
+	if err := character.CharacterID.Set(characterID); err != nil {
+		return nil, err
+	}
+	if err := character.CharacterName.Set(characterName); err != nil {
+		return nil, err
+	}
+	if err := character.Owner.Set(owner); err != nil {
+		return nil, err
+	}
+	if err := character.RefreshToken.Set(token.RefreshToken); err != nil {
+		return nil, err
+	}
+	if err := character.Active.Set(true); err != nil {
+		return nil, err
 	}
 	return character, p.store.transaction(
 		ctx, func(ctx context.Context, tx pgx.Tx) error {
-			q := `INSERT INTO characters (id, profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`
+			q := `INSERT INTO characters (profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`
 			logr.FromContextOrDiscard(ctx).Info(q, "id", character.ID, "profile", p.ID)
-			if _, err := tx.Exec(
+			if err := tx.QueryRow(
 				ctx, q,
-				&character.ID,
 				&character.ProfileReference,
 				&character.CharacterID,
 				&character.CharacterName,
@@ -168,7 +190,7 @@ func (p *Profile) CreateCharacter(ctx context.Context, token *oauth2.Token) (eve
 				&character.Active,
 				&character.CreatedAt,
 				&character.UpdatedAt,
-			); err != nil {
+			).Scan(&character.ID); err != nil {
 				return err
 			}
 			return nil
@@ -180,9 +202,12 @@ func (p *Profile) CreatePKCE(ctx context.Context, scopes ...string) (evesso.PKCE
 	pkce := MakePKCE(p)
 	return pkce, p.store.transaction(
 		ctx, func(ctx context.Context, tx pgx.Tx) error {
-			q := `insert into pkces (id, profile_ref, state, code_verifier, code_challange,scopes, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`
+			q := `insert into pkces (profile_ref, code_verifier, code_challange, scopes, created_at) VALUES ($1,$2,$3,$4,$5) returning id,state`
 			logr.FromContextOrDiscard(ctx).Info(q, "id", pkce.ID, "profile", p.ID)
-			if _, err := tx.Exec(ctx, q, pkce.ID, pkce.ProfileReference, pkce.State, pkce.CodeVerifier, pkce.CodeChallange, MakeScopes(scopes), pkce.CreatedAt); err != nil {
+			if err := tx.QueryRow(ctx, q, pkce.ProfileReference, pkce.CodeVerifier, pkce.CodeChallange, MakeScopes(scopes), pkce.CreatedAt).Scan(
+				&pkce.ID,
+				&pkce.State,
+			); err != nil {
 				return err
 			}
 			return nil

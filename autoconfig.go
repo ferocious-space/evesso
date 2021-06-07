@@ -146,7 +146,7 @@ func (r *EVESSO) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	encoder := json.NewEncoder(w)
 	code := req.FormValue("code")
 	state := req.FormValue("state")
-	pkce, err := r.store.FindPKCE(req.Context(), state)
+	pkce, err := r.store.FindPKCE(req.Context(), uuid.FromStringOrNil(state))
 	if err != nil {
 		//we have no state for this request, discard it
 		return
@@ -212,7 +212,7 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 
 			code := c.Request().FormValue("code")
 			state := c.Request().FormValue("state")
-			pkce, err := r.store.FindPKCE(ctx, state)
+			pkce, err := r.store.FindPKCE(ctx, uuid.FromStringOrNil(state))
 			if err != nil {
 				//we have no state for this request, discard it
 				return &echo.HTTPError{

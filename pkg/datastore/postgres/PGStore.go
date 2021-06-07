@@ -197,15 +197,20 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 func (x *PGStore) NewProfile(ctx context.Context, profileName string) (evesso.Profile, error) {
 	profile := new(Profile)
 	profile.store = x
-	profile.ID = uuid.Must(uuid.NewV4())
-	profile.ProfileName = profileName
-	profile.CreatedAt = time.Now()
-	profile.UpdatedAt = time.Now()
+	if err := profile.ProfileName.Set(profileName); err != nil {
+		return nil, err
+	}
+	if err := profile.CreatedAt.Set(time.Now()); err != nil {
+		return nil, err
+	}
+	if err := profile.UpdatedAt.Set(time.Now()); err != nil {
+		return nil, err
+	}
 	return profile, x.transaction(
 		ctx, func(ctx context.Context, tx pgx.Tx) error {
-			q := `INSERT INTO profiles (id, profile_name, created_at, updated_at) values ($1 , $2 , $3 , $4)`
+			q := `INSERT INTO profiles (profile_name, created_at, updated_at) values ($1 , $2 , $3) returning id`
 			logr.FromContextOrDiscard(ctx).Info(q)
-			_, err := tx.Exec(ctx, q, profile.ID, profile.ProfileName, profile.CreatedAt, profile.UpdatedAt)
+			err := tx.QueryRow(ctx, q, profile.ProfileName, profile.CreatedAt, profile.UpdatedAt).Scan(&profile.ID)
 			if err != nil {
 				return err
 			}
@@ -337,7 +342,7 @@ func (x *PGStore) GetPKCE(ctx context.Context, pkceID uuid.UUID) (evesso.PKCE, e
 	)
 }
 
-func (x *PGStore) FindPKCE(ctx context.Context, state string) (evesso.PKCE, error) {
+func (x *PGStore) FindPKCE(ctx context.Context, state uuid.UUID) (evesso.PKCE, error) {
 	pkce := new(PKCE)
 	pkce.store = x
 	tx, err := x.Connection(ctx)

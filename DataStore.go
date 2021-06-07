@@ -21,7 +21,7 @@ type ProfileStore interface {
 	DeleteProfile(ctx context.Context, profileID uuid.UUID) error
 
 	GetPKCE(ctx context.Context, pkceID uuid.UUID) (PKCE, error)
-	FindPKCE(ctx context.Context, state string) (PKCE, error)
+	FindPKCE(ctx context.Context, state uuid.UUID) (PKCE, error)
 	CleanPKCE(ctx context.Context) error
 }
 
