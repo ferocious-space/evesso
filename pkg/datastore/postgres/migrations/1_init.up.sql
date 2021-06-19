@@ -1,6 +1,7 @@
-create extension if not exists "uuid-ossp";
+create extension if not exists "uuid-ossp" with schema public;
+create schema if not exists evesso;
+set search_path = evesso, public;
 begin;
-
 create table if not exists profiles
 (
     id           uuid        not null DEFAULT uuid_generate_v4(),
@@ -28,7 +29,7 @@ create table if not exists pkces
         primary key (id),
     constraint pkce_profile_fk
         foreign key (profile_ref) references profiles
-            on update cascade on delete cascade
+            on delete cascade
 );
 
 create unique index if not exists pkces_state_idx
@@ -50,7 +51,7 @@ create table if not exists characters
         primary key (id),
     constraint character_profile_fk
         foreign key (profile_ref) references profiles
-            on update cascade on delete cascade
+            on delete cascade
 );
 
 create unique index if not exists characters_profile_ref_character_id_character_name_owner_scopes
