@@ -8,7 +8,6 @@ import (
 	"github.com/go-logr/logr"
 
 	"github.com/ferocious-space/evesso"
-	"github.com/ferocious-space/evesso/internal/utils"
 	"github.com/ferocious-space/evesso/pkg/datastore/postgres"
 )
 
@@ -36,22 +35,22 @@ func main() {
 		log.Fatalln(err)
 		return
 	}
-	if !source.Valid() {
-		au, err := source.AuthUrl()
-		if err != nil {
-			log.Fatalln(err)
-			return
-		}
-		err = utils.OSExec(au)
-		if err != nil {
-			log.Fatalln(err)
-			return
-		}
-		err = config.LocalhostAuth(au)
-		if err != nil {
-			log.Fatalln(err)
-			return
-		}
-	}
+	//if !source.Valid() {
+	//	au, err := source.AuthUrl()
+	//	if err != nil {
+	//		log.Fatalln(err)
+	//		return
+	//	}
+	//	err = utils.OSExec(au)
+	//	if err != nil {
+	//		log.Fatalln(err)
+	//		return
+	//	}
+	//	err = config.LocalhostAuth(au)
+	//	if err != nil {
+	//		log.Fatalln(err)
+	//		return
+	//	}
+	//}
 	fmt.Println(source.Valid())
 }
