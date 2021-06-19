@@ -136,13 +136,15 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 	config.HealthCheckPeriod = 30 * time.Second
 	config.MaxConnIdleTime = 1 * time.Minute
 	config.MaxConnLifetime = 5 * time.Minute
-
+	migrationConfig := config.Copy()
+	config.ConnConfig.RuntimeParams["search_path"] = "evesso, public"
 	pool, err := pgxpool.ConnectConfig(ctx, config)
 	if err != nil {
 		return nil, err
 	}
 	data.pool = pool
-	sqlDB, err := sql.Open("pgx", stdlib.RegisterConnConfig(config.ConnConfig))
+	config.Copy()
+	sqlDB, err := sql.Open("pgx", stdlib.RegisterConnConfig(migrationConfig.ConnConfig))
 	if err != nil {
 		return nil, err
 	}
