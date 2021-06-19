@@ -143,9 +143,11 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 	if config.ConnConfig.User == "postgres" {
 		schema = "public"
 		config.ConnConfig.RuntimeParams["search_path"] = "evesso, public"
+		migrationConfig.ConnConfig.RuntimeParams["search_path"] = "public"
 	} else {
 		schema = config.ConnConfig.User
 		config.ConnConfig.RuntimeParams["search_path"] = fmt.Sprintf("evesso, %s, public", schema)
+		migrationConfig.ConnConfig.RuntimeParams["search_path"] = fmt.Sprintf("%s, public", schema)
 	}
 
 	pool, err := pgxpool.ConnectConfig(ctx, config)
@@ -175,14 +177,14 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	data.migrations.Log = newMigrationLogger(logr.FromContextOrDiscard(ctx), true)
 	err = data.migrations.Up()
 	if err != nil {
 		if !errors.Is(err, migrate.ErrNoChange) {
 			return nil, err
 		}
 	}
-	data.migrations.Log = newMigrationLogger(logr.FromContextOrDiscard(ctx), true)
+
 	return data, nil
 }
 
