@@ -105,18 +105,27 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 		if err != nil {
 			return nil, err
 		}
-		err = character.UpdateToken(o.ctx, l.RefreshToken)
+		err = character.UpdateRefreshToken(o.ctx, l.RefreshToken)
 		if err != nil {
 			return nil, err
 		}
 	}
 	// verify token if changed
 	if o.token.AccessToken != l.AccessToken {
-		_, err := o.jwt(l)
+		_, err = o.jwt(l)
+		if err != nil {
+			return nil, err
+		}
+		character, err := o.GetCharacter()
+		if err != nil {
+			return nil, err
+		}
+		err = character.UpdateAccessToken(o.ctx, l.AccessToken)
 		if err != nil {
 			return nil, err
 		}
 		o.token = l
+
 	}
 	return o.token, nil
 }

@@ -64,7 +64,9 @@ type Character interface {
 	IsActive() bool
 
 	GetProfile(ctx context.Context) (Profile, error)
-	UpdateToken(ctx context.Context, RefreshToken string) error
+
+	UpdateAccessToken(ctx context.Context, AccessToken string) error
+	UpdateRefreshToken(ctx context.Context, RefreshToken string) error
 	UpdateActiveState(ctx context.Context, active bool) error
 	Token() (*oauth2.Token, error)
 	Delete(ctx context.Context) error

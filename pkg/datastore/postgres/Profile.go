@@ -71,7 +71,7 @@ func (p *Profile) GetCharacter(ctx context.Context, uuid uuid.UUID) (evesso.Char
 		return nil, err
 	}
 	defer tx.Release()
-	dataQuery := `SELECT id, profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at FROM characters WHERE id = $1`
+	dataQuery := `SELECT id, profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at,access_token FROM characters WHERE id = $1`
 	return character, HandleError(
 		tx.QueryRow(ctx, dataQuery, uuid).Scan(
 			&character.ID,
@@ -84,6 +84,7 @@ func (p *Profile) GetCharacter(ctx context.Context, uuid uuid.UUID) (evesso.Char
 			&character.Active,
 			&character.CreatedAt,
 			&character.UpdatedAt,
+			&character.AccessToken,
 		),
 	)
 }
@@ -102,6 +103,7 @@ func (p *Profile) GetName() string {
 	_ = p.ProfileName.AssignTo(&name)
 	return name
 }
+
 func (p *Profile) FindCharacter(ctx context.Context, characterID int32, characterName string, Owner string, Scopes []string) (evesso.Character, error) {
 	character := new(Character)
 	character.store = p.store
@@ -111,7 +113,7 @@ func (p *Profile) FindCharacter(ctx context.Context, characterID int32, characte
 	}
 	defer tx.Release()
 
-	dataQuery := `SELECT id, profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at FROM characters WHERE %s`
+	dataQuery := `SELECT id, profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at,access_token FROM characters WHERE %s`
 	whereParams := []string{}
 	queryParams := []interface{}{}
 	counter := 0
@@ -159,6 +161,7 @@ func (p *Profile) FindCharacter(ctx context.Context, characterID int32, characte
 			&character.Active,
 			&character.CreatedAt,
 			&character.UpdatedAt,
+			&character.AccessToken,
 		),
 	)
 

@@ -9,6 +9,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v4"
+	"github.com/lestrrat-go/jwx/jwt"
 	"golang.org/x/oauth2"
 
 	"github.com/ferocious-space/evesso"
@@ -31,6 +32,9 @@ type Character struct {
 	//ESI CharacterOwner
 	Owner pgtype.Text `json:"owner" db:"owner"`
 
+	//Last issued oauth2 AccessToken
+	AccessToken pgtype.Text `json:"access_token" db:"access_token"`
+
 	//RefreshToken is oauth2 refresh token
 	RefreshToken pgtype.Text `json:"refresh_token" db:"refresh_token"`
 
@@ -41,6 +45,25 @@ type Character struct {
 
 	CreatedAt pgtype.Timestamptz `json:"created_at" db:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at" db:"updated_at"`
+}
+
+func (c *Character) UpdateAccessToken(ctx context.Context, AccessToken string) error {
+	c.Lock()
+	defer c.Unlock()
+	err := c.AccessToken.Set(AccessToken)
+	if err != nil {
+		return err
+	}
+	return c.store.transaction(
+		ctx, func(ctx context.Context, tx pgx.Tx) error {
+			q := "update characters set access_token = $1, updated_at = $2 where id = $3"
+			logr.FromContextOrDiscard(ctx).V(1).Info(q, "id", c.ID, "profile", c.ProfileReference)
+			if _, err := tx.Exec(ctx, q, c.AccessToken, time.Now(), c.ID); err != nil {
+				return err
+			}
+			return nil
+		},
+	)
 }
 
 func (c *Character) GetID() uuid.UUID {
@@ -95,7 +118,7 @@ func (c *Character) GetProfile(ctx context.Context) (evesso.Profile, error) {
 	return c.store.GetProfile(ctx, c.GetProfileID())
 }
 
-func (c *Character) UpdateToken(ctx context.Context, RefreshToken string) error {
+func (c *Character) UpdateRefreshToken(ctx context.Context, RefreshToken string) error {
 	c.Lock()
 	defer c.Unlock()
 	err := c.RefreshToken.Set(RefreshToken)
@@ -154,8 +177,8 @@ func (c *Character) Token() (*oauth2.Token, error) {
 		return nil, err
 	}
 	defer tx.Release()
-	q := "select refresh_token from characters where id = $1"
-	err = tx.QueryRow(timeout, q, c.ID).Scan(&c.RefreshToken)
+	q := "select access_token,refresh_token from characters where id = $1"
+	err = tx.QueryRow(timeout, q, c.ID).Scan(&c.AccessToken, &c.RefreshToken)
 	if err != nil {
 		return nil, HandleError(err)
 	}
@@ -163,7 +186,17 @@ func (c *Character) Token() (*oauth2.Token, error) {
 	if err := c.RefreshToken.AssignTo(&refreshToken); err != nil {
 		return nil, err
 	}
-	return &oauth2.Token{RefreshToken: refreshToken, Expiry: time.Now()}, nil
+	expiration := time.Now().UTC()
+	accessToken := ""
+	_ = c.AccessToken.AssignTo(&accessToken)
+	if len(accessToken) > 1 {
+		parseString, err := jwt.ParseString(accessToken)
+		if err != nil {
+			accessToken = ""
+		}
+		expiration = parseString.Expiration()
+	}
+	return &oauth2.Token{AccessToken: accessToken, RefreshToken: refreshToken, Expiry: expiration}, nil
 }
 
 func (c *Character) Delete(ctx context.Context) error {
