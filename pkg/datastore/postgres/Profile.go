@@ -31,6 +31,63 @@ type Profile struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at" db:"updated_at"`
 }
 
+func (p *Profile) AllCharacters(ctx context.Context) ([]evesso.Character, error) {
+	result := make([]evesso.Character, 0)
+	ids := make([]uuid.UUID, 0)
+	dataQuery := `SELECT id FROM characters`
+	tx, err := p.store.Connection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Release()
+	rows, err := tx.Query(ctx, dataQuery)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var uid uuid.UUID
+		err := rows.Scan(&uid)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, uid)
+	}
+	defer rows.Close()
+	for _, uid := range ids {
+		ch, err := p.GetCharacter(ctx, uid)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, ch)
+	}
+	return result, nil
+}
+
+func (p *Profile) GetCharacter(ctx context.Context, uuid uuid.UUID) (evesso.Character, error) {
+	character := new(Character)
+	character.store = p.store
+	tx, err := p.store.Connection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Release()
+	dataQuery := `SELECT id, profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at FROM characters WHERE id = $1`
+	return character, HandleError(
+		tx.QueryRow(ctx, dataQuery, uuid).Scan(
+			&character.ID,
+			&character.ProfileReference,
+			&character.CharacterID,
+			&character.CharacterName,
+			&character.Owner,
+			&character.RefreshToken,
+			&character.Scopes,
+			&character.Active,
+			&character.CreatedAt,
+			&character.UpdatedAt,
+		),
+	)
+}
+
 func (p *Profile) GetID() uuid.UUID {
 	uid := []byte{}
 	err := p.ID.AssignTo(&uid)
@@ -45,7 +102,7 @@ func (p *Profile) GetName() string {
 	_ = p.ProfileName.AssignTo(&name)
 	return name
 }
-func (p *Profile) GetCharacter(ctx context.Context, characterID int32, characterName string, Owner string, Scopes []string) (evesso.Character, error) {
+func (p *Profile) FindCharacter(ctx context.Context, characterID int32, characterName string, Owner string, Scopes []string) (evesso.Character, error) {
 	character := new(Character)
 	character.store = p.store
 	tx, err := p.store.Connection(ctx)

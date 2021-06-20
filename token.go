@@ -33,7 +33,7 @@ func (o *ssoTokenSource) GetCharacter() (Character, error) {
 	if err != nil {
 		return nil, err
 	}
-	character, err := profile.GetCharacter(o.ctx, 0, o.characterName, "", o.oauthConfig.Scopes)
+	character, err := profile.FindCharacter(o.ctx, 0, o.characterName, "", o.oauthConfig.Scopes)
 	if err != nil {
 		return nil, err
 	}

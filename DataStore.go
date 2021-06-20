@@ -15,6 +15,8 @@ type DataStore interface {
 
 type ProfileStore interface {
 	NewProfile(ctx context.Context, profileName string) (Profile, error)
+
+	AllProfiles(ctx context.Context) ([]Profile, error)
 	GetProfile(ctx context.Context, profileID uuid.UUID) (Profile, error)
 	FindProfile(ctx context.Context, profileName string) (Profile, error)
 	FindCharacter(ctx context.Context, characterID int32, characterName string, Owner string) (Profile, Character, error)
@@ -29,7 +31,10 @@ type Profile interface {
 	GetID() uuid.UUID
 	GetName() string
 
-	GetCharacter(ctx context.Context, characterID int32, characterName string, Owner string, Scopes []string) (Character, error)
+	AllCharacters(ctx context.Context) ([]Character, error)
+	GetCharacter(ctx context.Context, uuid uuid.UUID) (Character, error)
+	FindCharacter(ctx context.Context, characterID int32, characterName string, Owner string, Scopes []string) (Character, error)
+
 	CreateCharacter(ctx context.Context, token *oauth2.Token) (Character, error)
 	CreatePKCE(ctx context.Context, scopes ...string) (PKCE, error)
 	Delete(ctx context.Context) error

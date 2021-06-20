@@ -161,7 +161,7 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 		return nil, err
 	}
 	data.pool = pool
-	config.Copy()
+
 	sqlDB, err := sql.Open("pgx", stdlib.RegisterConnConfig(config.ConnConfig.Copy()))
 	if err != nil {
 		return nil, err
@@ -217,6 +217,38 @@ func (x *PGStore) NewProfile(ctx context.Context, profileName string) (evesso.Pr
 			return nil
 		},
 	)
+}
+
+func (x *PGStore) AllProfiles(ctx context.Context) ([]evesso.Profile, error) {
+	result := make([]evesso.Profile, 0)
+	ids := make([]uuid.UUID, 0)
+	dataQuery := `SELECT id FROM profiles`
+	tx, err := x.Connection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Release()
+	rows, err := tx.Query(ctx, dataQuery)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var uid uuid.UUID
+		err := rows.Scan(&uid)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, uid)
+	}
+	defer rows.Close()
+	for _, uid := range ids {
+		ch, err := x.GetProfile(ctx, uid)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, ch)
+	}
+	return result, nil
 }
 
 func (x *PGStore) GetProfile(ctx context.Context, profileID uuid.UUID) (evesso.Profile, error) {
