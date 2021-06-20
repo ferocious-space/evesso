@@ -235,9 +235,12 @@ func (p *Profile) CreateCharacter(ctx context.Context, token *oauth2.Token) (eve
 	if err := character.Active.Set(true); err != nil {
 		return nil, err
 	}
+	if err := character.AccessToken.Set(token.AccessToken); err != nil {
+		return nil, err
+	}
 	return character, p.store.transaction(
 		ctx, func(ctx context.Context, tx pgx.Tx) error {
-			q := `INSERT INTO characters (profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id`
+			q := `INSERT INTO characters (profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at,access_token) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id`
 			logr.FromContextOrDiscard(ctx).Info(q, "id", character.ID, "profile", p.ID)
 			if err := tx.QueryRow(
 				ctx, q,
@@ -250,6 +253,7 @@ func (p *Profile) CreateCharacter(ctx context.Context, token *oauth2.Token) (eve
 				&character.Active,
 				&character.CreatedAt,
 				&character.UpdatedAt,
+				&character.AccessToken,
 			).Scan(&character.ID); err != nil {
 				return err
 			}
