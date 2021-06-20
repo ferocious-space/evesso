@@ -34,13 +34,13 @@ type Profile struct {
 func (p *Profile) AllCharacters(ctx context.Context) ([]evesso.Character, error) {
 	result := make([]evesso.Character, 0)
 	ids := make([]uuid.UUID, 0)
-	dataQuery := `SELECT id FROM characters`
+	dataQuery := `SELECT id FROM characters where profile_ref = $1`
 	tx, err := p.store.Connection(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Release()
-	rows, err := tx.Query(ctx, dataQuery)
+	rows, err := tx.Query(ctx, dataQuery, p.GetID())
 	if err != nil {
 		return nil, err
 	}
