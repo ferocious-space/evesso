@@ -154,6 +154,16 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := pool.AcquireFunc(
+		ctx, func(conn *pgxpool.Conn) error {
+			if _, err := conn.Exec(ctx, fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS evesso AUTHORIZATION %s", config.ConnConfig.User)); err != nil {
+				return err
+			}
+			return nil
+		},
+	); err != nil {
+		return nil, err
+	}
 	data.pool = pool
 	config.Copy()
 	sqlDB, err := sql.Open("pgx", stdlib.RegisterConnConfig(migrationConfig.ConnConfig))

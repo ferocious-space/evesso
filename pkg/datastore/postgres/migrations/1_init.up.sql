@@ -1,5 +1,4 @@
 create extension if not exists "uuid-ossp" with schema public;
-create schema if not exists evesso;
 set search_path = evesso, public;
 begin;
 create table if not exists profiles
