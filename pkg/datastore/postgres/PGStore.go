@@ -137,17 +137,13 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 	config.MaxConnIdleTime = 1 * time.Minute
 	config.MaxConnLifetime = 5 * time.Minute
 
-	migrationConfig := config.Copy()
-
 	schema := ""
 	if config.ConnConfig.User == "postgres" {
 		schema = "public"
 		config.ConnConfig.RuntimeParams["search_path"] = "evesso, public"
-		migrationConfig.ConnConfig.RuntimeParams["search_path"] = "public"
 	} else {
-		schema = config.ConnConfig.User
-		config.ConnConfig.RuntimeParams["search_path"] = fmt.Sprintf("evesso, %s, public", schema)
-		migrationConfig.ConnConfig.RuntimeParams["search_path"] = fmt.Sprintf("%s, public", schema)
+		schema = "evesso"
+		config.ConnConfig.RuntimeParams["search_path"] = fmt.Sprintf("evesso, %s, public", config.ConnConfig.User)
 	}
 
 	pool, err := pgxpool.ConnectConfig(ctx, config)
@@ -166,7 +162,7 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 	}
 	data.pool = pool
 	config.Copy()
-	sqlDB, err := sql.Open("pgx", stdlib.RegisterConnConfig(migrationConfig.ConnConfig))
+	sqlDB, err := sql.Open("pgx", stdlib.RegisterConnConfig(config.ConnConfig.Copy()))
 	if err != nil {
 		return nil, err
 	}
