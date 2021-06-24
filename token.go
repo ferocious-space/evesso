@@ -86,7 +86,7 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 	}
 	// get token from refresh token or refresh existing access token
 	l, err := o.oauthConfig.TokenSource(o.ctx, o.token).Token()
-	if err != nil {
+	if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 		if o.token != nil {
 			character, cerr := o.GetCharacter()
 			if cerr != nil {
