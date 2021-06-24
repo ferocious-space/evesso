@@ -130,6 +130,7 @@ func (r *EVESSO) CharacterSource(character Character) (*ssoTokenSource, error) {
 		store:         r.store,
 		profileID:     character.GetProfileID(),
 		characterName: character.GetCharacterName(),
+		character:     character,
 	}, nil
 }
 

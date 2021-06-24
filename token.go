@@ -24,6 +24,7 @@ type ssoTokenSource struct {
 
 	store DataStore
 
+	character     Character
 	profileID     uuid.UUID
 	characterName string
 }
@@ -59,14 +60,10 @@ func (o *ssoTokenSource) jwt(token *oauth2.Token) (jwt.Token, error) {
 }
 
 func (o *ssoTokenSource) validate(token jwt.Token) error {
-	character, err := o.GetCharacter()
-	if err != nil {
-		return err
-	}
 	return jwt.Validate(
 		token,
 		jwt.WithIssuer(CONST_ISSUER), jwt.WithClaimValue("azp", o.oauthConfig.ClientID),
-		jwt.WithSubject(fmt.Sprintf("CHARACTER:EVE:%d", character.GetCharacterID())), jwt.WithClaimValue("owner", character.GetOwner()),
+		jwt.WithSubject(fmt.Sprintf("CHARACTER:EVE:%d", o.character.GetCharacterID())), jwt.WithClaimValue("owner", o.character.GetOwner()),
 	)
 }
 
@@ -74,11 +71,14 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 	o.Lock()
 	defer o.Unlock()
 	if o.token == nil {
-		character, err := o.GetCharacter()
-		if err != nil {
-			return nil, err
+		if o.character == nil {
+			character, err := o.GetCharacter()
+			if err != nil {
+				return nil, err
+			}
+			o.character = character
 		}
-		token, err := character.Token()
+		token, err := o.character.Token()
 		if err != nil {
 			return nil, err
 		}
@@ -88,11 +88,7 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 	l, err := o.oauthConfig.TokenSource(o.ctx, o.token).Token()
 	if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 		if o.token != nil {
-			character, cerr := o.GetCharacter()
-			if cerr != nil {
-				return nil, errors.Wrap(cerr, err.Error())
-			}
-			terr := character.UpdateActiveState(o.ctx, false)
+			terr := o.character.UpdateActiveState(o.ctx, false)
 			if terr != nil {
 				return nil, errors.Wrap(terr, err.Error())
 			}
@@ -101,11 +97,7 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 	}
 	// check if refresh token changed
 	if o.token.RefreshToken != l.RefreshToken {
-		character, err := o.GetCharacter()
-		if err != nil {
-			return nil, err
-		}
-		err = character.UpdateRefreshToken(o.ctx, l.RefreshToken)
+		err = o.character.UpdateRefreshToken(o.ctx, l.RefreshToken)
 		if err != nil {
 			return nil, err
 		}
@@ -116,11 +108,7 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 		if err != nil {
 			return nil, err
 		}
-		character, err := o.GetCharacter()
-		if err != nil {
-			return nil, err
-		}
-		err = character.UpdateAccessToken(o.ctx, l.AccessToken)
+		err = o.character.UpdateAccessToken(o.ctx, l.AccessToken)
 		if err != nil {
 			return nil, err
 		}
