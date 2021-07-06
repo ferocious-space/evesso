@@ -27,8 +27,13 @@ type PKCE struct {
 	CodeChallange       pgtype.Text      `json:"code_challange" db:"code_challange"`
 	CodeChallangeMethod pgtype.Text      `json:"code_challange_method" db:"code_challange_method"`
 	Scopes              pgtype.TextArray `json:"scopes" db:"scopes"`
+	ReferenceData       pgtype.JSONB     `json:"reference_data" db:"reference_data"`
 
 	CreatedAt pgtype.Timestamptz `json:"created_at" db:"created_at"`
+}
+
+func (p *PKCE) GetReferenceData() interface{} {
+	return p.ReferenceData.Get()
 }
 
 func (p *PKCE) GetScopes() []string {

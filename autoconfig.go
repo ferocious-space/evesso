@@ -179,7 +179,7 @@ func (r *EVESSO) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	//extract character
-	_, err = profile.CreateCharacter(req.Context(), token)
+	_, err = profile.CreateCharacter(req.Context(), token, pkce.GetReferenceData())
 	if err != nil {
 		_ = encoder.Encode(err)
 		//token parse failed ?
@@ -260,7 +260,7 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 					Internal: err,
 				}
 			}
-			_, err = profile.CreateCharacter(ctx, token)
+			_, err = profile.CreateCharacter(ctx, token, pkce.GetReferenceData())
 			if err != nil {
 				return &echo.HTTPError{
 					Code:     http.StatusInternalServerError,

@@ -86,7 +86,10 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 	}
 	// get token from refresh token or refresh existing access token
 	l, err := o.oauthConfig.TokenSource(o.ctx, o.token).Token()
-	if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return nil, err
+	}
+	if err != nil {
 		if o.token != nil {
 			terr := o.character.UpdateActiveState(o.ctx, false)
 			if terr != nil {
@@ -125,14 +128,14 @@ func (o *ssoTokenSource) Valid() bool {
 	return true
 }
 
-func (o *ssoTokenSource) Save(token *oauth2.Token) error {
+func (o *ssoTokenSource) Save(token *oauth2.Token, referenceData interface{}) error {
 	o.Lock()
 	defer o.Unlock()
 	profile, err := o.store.GetProfile(o.ctx, o.profileID)
 	if err != nil {
 		return err
 	}
-	_, err = profile.CreateCharacter(o.ctx, token)
+	_, err = profile.CreateCharacter(o.ctx, token, referenceData)
 	if err != nil {
 		return err
 	}
@@ -140,12 +143,12 @@ func (o *ssoTokenSource) Save(token *oauth2.Token) error {
 	return nil
 }
 
-func (o *ssoTokenSource) AuthUrl() (string, error) {
+func (o *ssoTokenSource) AuthUrl(referenceData interface{}) (string, error) {
 	profile, err := o.store.GetProfile(o.ctx, o.profileID)
 	if err != nil {
 		return "", err
 	}
-	pkce, err := profile.CreatePKCE(o.ctx, o.oauthConfig.Scopes...)
+	pkce, err := profile.CreatePKCE(o.ctx, referenceData, o.oauthConfig.Scopes...)
 	if err != nil {
 		return "", err
 	}

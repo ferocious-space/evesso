@@ -184,7 +184,7 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 		return nil, err
 	}
 	data.migrations.Log = newMigrationLogger(logr.FromContextOrDiscard(ctx), true)
-	err = data.migrations.Up()
+	err = data.migrations.Migrate(3)
 	if err != nil {
 		if !errors.Is(err, migrate.ErrNoChange) {
 			return nil, err
@@ -359,7 +359,7 @@ func (x *PGStore) GetPKCE(ctx context.Context, pkceID uuid.UUID) (evesso.PKCE, e
 	defer tx.Release()
 	return pkce, tx.QueryRow(
 		ctx,
-		"SELECT id, profile_ref, state, code_verifier, code_challange, code_challange_method, scopes, created_at FROM pkces WHERE id = $1 AND created_at > $2",
+		"SELECT id, profile_ref, state, code_verifier, code_challange, code_challange_method, scopes, created_at, reference_data FROM pkces WHERE id = $1 AND created_at > $2",
 		pkceID,
 		time.Now().Add(-5*time.Minute),
 	).Scan(
@@ -371,6 +371,7 @@ func (x *PGStore) GetPKCE(ctx context.Context, pkceID uuid.UUID) (evesso.PKCE, e
 		&pkce.CodeChallangeMethod,
 		&pkce.Scopes,
 		&pkce.CreatedAt,
+		&pkce.ReferenceData,
 	)
 }
 
@@ -383,7 +384,7 @@ func (x *PGStore) FindPKCE(ctx context.Context, state uuid.UUID) (evesso.PKCE, e
 	}
 	defer tx.Release()
 
-	q := "SELECT id, profile_ref, state, code_verifier, code_challange, code_challange_method, scopes, created_at from pkces where state = $1 and created_at > $2"
+	q := "SELECT id, profile_ref, state, code_verifier, code_challange, code_challange_method, scopes, created_at,reference_data from pkces where state = $1 and created_at > $2"
 	logr.FromContextOrDiscard(ctx).Info(q, "state", state)
 	return pkce, HandleError(
 		tx.QueryRow(ctx, q, state, time.Now().Add(-5*time.Minute)).Scan(
@@ -395,6 +396,7 @@ func (x *PGStore) FindPKCE(ctx context.Context, state uuid.UUID) (evesso.PKCE, e
 			&pkce.CodeChallangeMethod,
 			&pkce.Scopes,
 			&pkce.CreatedAt,
+			&pkce.ReferenceData,
 		),
 	)
 

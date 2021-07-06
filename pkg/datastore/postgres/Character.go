@@ -41,10 +41,17 @@ type Character struct {
 	//Scopes is the scopes the refresh token was issued with
 	Scopes pgtype.TextArray `json:"scopes" db:"scopes"`
 
+	//ReferenceData is custom data passed during authentication
+	ReferenceData pgtype.JSONB `json:"reference_data" db:"reference_data"`
+
 	Active pgtype.Bool `json:"active" db:"active"`
 
 	CreatedAt pgtype.Timestamptz `json:"created_at" db:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at" db:"updated_at"`
+}
+
+func (c *Character) GetReferenceData() interface{} {
+	return c.ReferenceData.Get()
 }
 
 func (c *Character) UpdateAccessToken(ctx context.Context, AccessToken string) error {

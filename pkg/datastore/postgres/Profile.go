@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/goccy/go-json"
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v4"
@@ -71,7 +72,7 @@ func (p *Profile) GetCharacter(ctx context.Context, uuid uuid.UUID) (evesso.Char
 		return nil, err
 	}
 	defer tx.Release()
-	dataQuery := `SELECT id, profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at,access_token FROM characters WHERE id = $1`
+	dataQuery := `SELECT id, profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at,access_token,reference_data FROM characters WHERE id = $1`
 	return character, HandleError(
 		tx.QueryRow(ctx, dataQuery, uuid).Scan(
 			&character.ID,
@@ -85,6 +86,7 @@ func (p *Profile) GetCharacter(ctx context.Context, uuid uuid.UUID) (evesso.Char
 			&character.CreatedAt,
 			&character.UpdatedAt,
 			&character.AccessToken,
+			&character.ReferenceData,
 		),
 	)
 }
@@ -113,7 +115,7 @@ func (p *Profile) FindCharacter(ctx context.Context, characterID int32, characte
 	}
 	defer tx.Release()
 
-	dataQuery := `SELECT id, profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at,access_token FROM characters WHERE %s`
+	dataQuery := `SELECT id, profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at,access_token,reference_data FROM characters WHERE %s`
 	whereParams := []string{}
 	queryParams := []interface{}{}
 	counter := 0
@@ -162,12 +164,13 @@ func (p *Profile) FindCharacter(ctx context.Context, characterID int32, characte
 			&character.CreatedAt,
 			&character.UpdatedAt,
 			&character.AccessToken,
+			&character.ReferenceData,
 		),
 	)
 
 }
 
-func (p *Profile) CreateCharacter(ctx context.Context, token *oauth2.Token) (evesso.Character, error) {
+func (p *Profile) CreateCharacter(ctx context.Context, token *oauth2.Token, referenceData interface{}) (evesso.Character, error) {
 	jToken, err := jwt.Parse([]byte(token.AccessToken))
 	if err != nil {
 		return nil, err
@@ -211,6 +214,10 @@ func (p *Profile) CreateCharacter(ctx context.Context, token *oauth2.Token) (eve
 		store:  p.store,
 		Scopes: MakeScopes(scope),
 	}
+	marshal, err := json.Marshal(referenceData)
+	if err != nil {
+		return nil, err
+	}
 	if err := character.CreatedAt.Set(time.Now()); err != nil {
 		return nil, err
 	}
@@ -238,9 +245,13 @@ func (p *Profile) CreateCharacter(ctx context.Context, token *oauth2.Token) (eve
 	if err := character.AccessToken.Set(token.AccessToken); err != nil {
 		return nil, err
 	}
+	if err := character.ReferenceData.Set(marshal); err != nil {
+		return nil, err
+	}
 	return character, p.store.transaction(
 		ctx, func(ctx context.Context, tx pgx.Tx) error {
-			q := `INSERT INTO characters (profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at,access_token) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id`
+			q := `INSERT INTO characters (profile_ref, character_id, character_name, owner, refresh_token, scopes, active, created_at, updated_at,access_token,reference_data) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) 
+					on conflict (profile_ref, character_id, character_name, owner, scopes) do update set refresh_token = excluded.refresh_token returning id`
 			logr.FromContextOrDiscard(ctx).Info(q, "id", character.ID, "profile", p.ID)
 			if err := tx.QueryRow(
 				ctx, q,
@@ -254,6 +265,7 @@ func (p *Profile) CreateCharacter(ctx context.Context, token *oauth2.Token) (eve
 				&character.CreatedAt,
 				&character.UpdatedAt,
 				&character.AccessToken,
+				&character.ReferenceData,
 			).Scan(&character.ID); err != nil {
 				return err
 			}
@@ -262,13 +274,22 @@ func (p *Profile) CreateCharacter(ctx context.Context, token *oauth2.Token) (eve
 	)
 }
 
-func (p *Profile) CreatePKCE(ctx context.Context, scopes ...string) (evesso.PKCE, error) {
+func (p *Profile) CreatePKCE(ctx context.Context, referenceData interface{}, scopes ...string) (evesso.PKCE, error) {
 	pkce := MakePKCE(p)
 	return pkce, p.store.transaction(
 		ctx, func(ctx context.Context, tx pgx.Tx) error {
-			q := `insert into pkces (profile_ref, code_verifier, code_challange, scopes, created_at) VALUES ($1,$2,$3,$4,$5) returning id,state`
+			rdata := pgtype.JSONB{}
+			marshal, err := json.Marshal(referenceData)
+			if err != nil {
+				return err
+			}
+			err = rdata.Set(marshal)
+			if err != nil {
+				return err
+			}
+			q := `insert into pkces (profile_ref, code_verifier, code_challange, scopes, created_at,reference_data) VALUES ($1,$2,$3,$4,$5,$6) returning id,state`
 			logr.FromContextOrDiscard(ctx).Info(q, "id", pkce.ID, "profile", p.ID)
-			if err := tx.QueryRow(ctx, q, pkce.ProfileReference, pkce.CodeVerifier, pkce.CodeChallange, MakeScopes(scopes), pkce.CreatedAt).Scan(
+			if err := tx.QueryRow(ctx, q, pkce.ProfileReference, pkce.CodeVerifier, pkce.CodeChallange, MakeScopes(scopes), pkce.CreatedAt, rdata).Scan(
 				&pkce.ID,
 				&pkce.State,
 			); err != nil {

@@ -35,8 +35,8 @@ type Profile interface {
 	GetCharacter(ctx context.Context, uuid uuid.UUID) (Character, error)
 	FindCharacter(ctx context.Context, characterID int32, characterName string, Owner string, Scopes []string) (Character, error)
 
-	CreateCharacter(ctx context.Context, token *oauth2.Token) (Character, error)
-	CreatePKCE(ctx context.Context, scopes ...string) (PKCE, error)
+	CreateCharacter(ctx context.Context, token *oauth2.Token, referenceData interface{}) (Character, error)
+	CreatePKCE(ctx context.Context, referenceData interface{}, scopes ...string) (PKCE, error)
 	Delete(ctx context.Context) error
 }
 
@@ -48,6 +48,7 @@ type PKCE interface {
 	GetCodeChallange() string
 	GetCodeChallangeMethod() string
 	GetScopes() []string
+	GetReferenceData() interface{}
 
 	GetProfile(ctx context.Context) (Profile, error)
 	Destroy(ctx context.Context) error
@@ -61,6 +62,7 @@ type Character interface {
 	GetCharacterID() int32
 	GetOwner() string
 	GetScopes() []string
+	GetReferenceData() interface{}
 	IsActive() bool
 
 	GetProfile(ctx context.Context) (Profile, error)
