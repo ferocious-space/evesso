@@ -3,6 +3,7 @@ package evesso
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sync"
 
 	"github.com/go-openapi/runtime"
@@ -86,15 +87,19 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 	}
 	// get token from refresh token or refresh existing access token
 	l, err := o.oauthConfig.TokenSource(o.ctx, o.token).Token()
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return nil, err
-	}
 	if err != nil {
-		if o.token != nil {
-			terr := o.character.UpdateActiveState(o.ctx, false)
-			if terr != nil {
-				return nil, errors.Wrap(terr, err.Error())
+		// do nothing on context expiration
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+
+		switch x := err.(type) {
+		case *oauth2.RetrieveError:
+			if terr := o.character.UpdateActiveState(o.ctx, false); err != nil {
+				return nil, errors.Wrap(terr, x.Error())
 			}
+		case *url.EscapeError, *url.InvalidHostError, *url.Error:
+			return nil, x
 		}
 		return nil, err
 	}
