@@ -7,7 +7,6 @@ import (
 	//"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgx/v4"
-
 	//"github.com/lib/pq"
 	"github.com/pkg/errors"
 )
@@ -20,15 +19,14 @@ var (
 	ErrTokenName         = errors.New("name is missing")
 	ErrTokenOwner        = errors.New("owner is missing")
 	ErrTokenID           = errors.New("id is missing")
-	ErrTranscationOpen   = errors.New("transaction already exist in this context")
-	ErrNoTranscationOpen = errors.New("no transaction in this context")
+	ErrTranscationOpen   = errors.New("Transaction already exist in this context")
+	ErrNoTranscationOpen = errors.New("no Transaction in this context")
 )
 
 func HandleError(err error) error {
 	if err == nil {
 		return nil
 	}
-
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errors.WithStack(ErrNoRows)
 	}
@@ -37,25 +35,6 @@ func HandleError(err error) error {
 		return errors.WithStack(ErrNoRows)
 	}
 	switch e := errors.Cause(err).(type) {
-	//case interface{ SQLState() string }:
-	//	switch e.SQLState() {
-	//	case "23505": // "unique_violation"
-	//		return errors.Wrap(ErrUniqueViolation, err.Error())
-	//	case "40001": // "serialization_failure"
-	//		return errors.Wrap(ErrConcurrentUpdate, err.Error())
-	//	}
-	//case *pq.Error:
-	//	switch e.Code {
-	//	case "23505": // "unique_violation"
-	//		return errors.Wrap(ErrUniqueViolation, e.Error())
-	//	case "40001": // "serialization_failure"
-	//		return errors.Wrap(ErrConcurrentUpdate, e.Error())
-	//	}
-	//case *mysql.MySQLError:
-	//	switch e.Number {
-	//	case 1062:
-	//		return errors.Wrap(ErrUniqueViolation, err.Error())
-	//	}
 	case *pgconn.PgError:
 		switch e.Code {
 		case "23505": // "unique_violation"
@@ -64,7 +43,6 @@ func HandleError(err error) error {
 			return errors.Wrap(ErrConcurrentUpdate, e.Error())
 		}
 	}
-
 	// Try other detections, for example for SQLite (we don't want to enforce CGO here!)
 	if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return errors.Wrap(ErrUniqueViolation, err.Error())

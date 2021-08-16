@@ -7,10 +7,9 @@ import (
 	"encoding/base64"
 	"time"
 
-	"github.com/go-logr/logr"
+	sq "github.com/Masterminds/squirrel"
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgtype"
-	"github.com/jackc/pgx/v4"
 
 	"github.com/ferocious-space/evesso"
 )
@@ -92,18 +91,11 @@ func (p *PKCE) GetProfile(ctx context.Context) (evesso.Profile, error) {
 }
 
 func (p *PKCE) Destroy(ctx context.Context) error {
-	return p.store.transaction(
-		ctx, func(ctx context.Context, tx pgx.Tx) error {
-			q := "DELETE FROM pkces WHERE id = $1"
-			if _, err := tx.Exec(ctx, q, p.ID); err != nil {
-				return err
-			}
-			logr.FromContextOrDiscard(ctx).Info(q, "id", p.ID, "profile", p.ProfileReference)
-			//_, err := tx.ExecContext(ctx, q, p.ID)
-			//return err
-			return nil
-		},
-	)
+	err := p.store.Exec(ctx, sq.Delete("pkces").Where("id = ?", p.ID))
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (p *PKCE) Time() time.Time {

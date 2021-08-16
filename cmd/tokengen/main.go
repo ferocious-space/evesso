@@ -55,12 +55,13 @@ func main() {
 			return
 		}
 	}
-	profiles, err := config.Store().AllProfiles(context.Background())
+	fmt.Println("valid:", source.Valid())
+	profiles, err := config.Store().AllProfiles(newContext)
 	if err != nil {
 		return
 	}
 	for _, p := range profiles {
-		characters, err := p.AllCharacters(context.Background())
+		characters, err := p.AllCharacters(newContext)
 		if err != nil {
 			return
 		}
@@ -69,11 +70,10 @@ func main() {
 			if err != nil {
 				return
 			}
-			err = c.UpdateActiveState(context.Background(), characterSource.Valid())
+			err = c.UpdateActiveState(newContext, characterSource.Valid())
 			if err != nil {
 				return
 			}
 		}
 	}
-	fmt.Println(source.Valid())
 }

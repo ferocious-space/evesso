@@ -77,25 +77,19 @@ type Character interface {
 func MatchScopes(x, y []string) bool {
 	xLen := len(x)
 	yLen := len(y)
-
 	if xLen != yLen {
 		return false
 	}
-
 	if xLen > 20 {
 		return elementsMatchByMap(x, y)
 	} else {
 		return elementsMatchByLoop(x, y)
 	}
-
 }
-
 func elementsMatchByLoop(x, y []string) bool {
 	xLen := len(x)
 	yLen := len(y)
-
 	visited := make([]bool, yLen)
-
 	for i := 0; i < xLen; i++ {
 		found := false
 		element := x[i]
@@ -115,7 +109,6 @@ func elementsMatchByLoop(x, y []string) bool {
 	}
 	return true
 }
-
 func elementsMatchByMap(x, y []string) bool {
 	// create a map of string -> int
 	diff := make(map[string]int, len(x))
@@ -128,13 +121,10 @@ func elementsMatchByMap(x, y []string) bool {
 		if _, ok := diff[_y]; !ok {
 			return false
 		}
-		diff[_y] -= 1
+		diff[_y]--
 		if diff[_y] == 0 {
 			delete(diff, _y)
 		}
 	}
-	if len(diff) == 0 {
-		return true
-	}
-	return false
+	return len(diff) == 0
 }

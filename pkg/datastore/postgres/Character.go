@@ -5,10 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
+	sq "github.com/Masterminds/squirrel"
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgtype"
-	"github.com/jackc/pgx/v4"
 	"github.com/lestrrat-go/jwx/jwt"
 	"golang.org/x/oauth2"
 
@@ -61,16 +60,14 @@ func (c *Character) UpdateAccessToken(ctx context.Context, AccessToken string) e
 	if err != nil {
 		return err
 	}
-	return c.store.transaction(
-		ctx, func(ctx context.Context, tx pgx.Tx) error {
-			q := "update characters set access_token = $1, updated_at = $2 where id = $3"
-			logr.FromContextOrDiscard(ctx).V(1).Info(q, "id", c.ID, "profile", c.ProfileReference)
-			if _, err := tx.Exec(ctx, q, c.AccessToken, time.Now(), c.ID); err != nil {
-				return err
-			}
-			return nil
-		},
-	)
+	err = c.store.Exec(ctx, sq.Update("characters").
+		Set("access_token", c.AccessToken).
+		Set("updated_at", time.Now()).
+		Where(sq.Eq{"id": c.ID}))
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *Character) GetID() uuid.UUID {
@@ -132,16 +129,14 @@ func (c *Character) UpdateRefreshToken(ctx context.Context, RefreshToken string)
 	if err != nil {
 		return err
 	}
-	return c.store.transaction(
-		ctx, func(ctx context.Context, tx pgx.Tx) error {
-			q := "update characters set refresh_token = $1, updated_at = $2 where id = $3"
-			logr.FromContextOrDiscard(ctx).V(1).Info(q, "id", c.ID, "profile", c.ProfileReference)
-			if _, err := tx.Exec(ctx, q, c.RefreshToken, time.Now(), c.ID); err != nil {
-				return err
-			}
-			return nil
-		},
-	)
+	err = c.store.Exec(ctx, sq.Update("characters").
+		Set("refresh_token", c.RefreshToken).
+		Set("updated_at", time.Now()).
+		Where(sq.Eq{"id": c.ID}))
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *Character) UpdateActiveState(ctx context.Context, active bool) error {
@@ -156,16 +151,7 @@ func (c *Character) UpdateActiveState(ctx context.Context, active bool) error {
 	if err != nil {
 		return err
 	}
-	err = c.store.transaction(
-		ctx, func(ctx context.Context, tx pgx.Tx) error {
-			q := "update characters set active = $1, updated_at = $2 where id = $3"
-			logr.FromContextOrDiscard(ctx).V(1).Info(q, "id", c.ID, "profile", c.ProfileReference)
-			if _, err := tx.Exec(ctx, q, active, time.Now(), c.ID); err != nil {
-				return err
-			}
-			return nil
-		},
-	)
+	err = c.store.Exec(ctx, sq.Update("characters").Set("active", c.Active).Set("updated_at", time.Now()))
 	if err != nil {
 		err := c.Active.Set(old)
 		if err != nil {
@@ -179,15 +165,13 @@ func (c *Character) UpdateActiveState(ctx context.Context, active bool) error {
 func (c *Character) Token() (*oauth2.Token, error) {
 	timeout, cancelFunc := context.WithTimeout(context.TODO(), 1*time.Minute)
 	defer cancelFunc()
-	tx, err := c.store.Connection(timeout)
+	err := c.store.Select(timeout, sq.
+		Select("access_token,refresh_token").
+		From("characters").
+		Where("id = ?", c.ID),
+		c)
 	if err != nil {
 		return nil, err
-	}
-	defer tx.Release()
-	q := "select access_token,refresh_token from characters where id = $1"
-	err = tx.QueryRow(timeout, q, c.ID).Scan(&c.AccessToken, &c.RefreshToken)
-	if err != nil {
-		return nil, HandleError(err)
 	}
 	refreshToken := ""
 	if err := c.RefreshToken.AssignTo(&refreshToken); err != nil {
@@ -207,16 +191,11 @@ func (c *Character) Token() (*oauth2.Token, error) {
 }
 
 func (c *Character) Delete(ctx context.Context) error {
-	return c.store.transaction(
-		ctx, func(ctx context.Context, tx pgx.Tx) error {
-			q := `DELETE FROM characters WHERE id = $1`
-			logr.FromContextOrDiscard(ctx).V(1).Info(q, "id", c.ID, "profile", c.ProfileReference)
-			if _, err := tx.Exec(ctx, q, c.ID); err != nil {
-				return err
-			}
-			return nil
-		},
-	)
+	err := c.store.Exec(ctx, sq.Delete("characters").Where("id = ?", c.ID))
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 var _ evesso.Character = &Character{}
