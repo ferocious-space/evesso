@@ -219,7 +219,7 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 		return nil, err
 	}
 	data.migrations.Log = newMigrationLogger(logr.FromContextOrDiscard(ctx), true)
-	err = data.migrations.Migrate(3)
+	err = data.migrations.Up()
 	if err != nil {
 		if !errors.Is(err, migrate.ErrNoChange) {
 			return nil, err
