@@ -1,4 +1,4 @@
-package postgres
+package evessopg
 
 import (
 	"database/sql"

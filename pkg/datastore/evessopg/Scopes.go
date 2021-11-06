@@ -1,4 +1,4 @@
-package postgres
+package evessopg
 
 import (
 	"github.com/jackc/pgtype"

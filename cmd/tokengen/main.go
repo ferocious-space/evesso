@@ -10,13 +10,12 @@ import (
 	"github.com/go-logr/stdr"
 
 	"github.com/ferocious-space/evesso"
-	"github.com/ferocious-space/evesso/internal/utils"
-	"github.com/ferocious-space/evesso/pkg/datastore/postgres"
+	"github.com/ferocious-space/evesso/pkg/datastore/evessopg"
 )
 
 func main() {
 	newContext := logr.NewContext(context.Background(), stdr.New(log.New(os.Stdout, "", 0)))
-	config, err := evesso.AutoConfig(newContext, "./config.yaml", &postgres.PGStore{}, nil)
+	config, err := evesso.AutoConfig(newContext, "./config.yaml", &evessopg.PGStore{}, nil)
 	if err != nil {
 		log.Fatalln(err)
 		return
@@ -40,11 +39,6 @@ func main() {
 	}
 	if !source.Valid() {
 		au, err := source.AuthUrl(236432573567548)
-		if err != nil {
-			log.Fatalln(err)
-			return
-		}
-		err = utils.OSExec(au)
 		if err != nil {
 			log.Fatalln(err)
 			return
