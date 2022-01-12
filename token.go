@@ -95,8 +95,10 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 
 		switch x := err.(type) {
 		case *oauth2.RetrieveError:
-			if terr := o.character.UpdateActiveState(o.ctx, false); err != nil {
+			if terr := o.character.UpdateActiveState(o.ctx, false); terr != nil {
 				return nil, errors.Wrap(terr, x.Error())
+			} else {
+				return nil, x
 			}
 		case *url.EscapeError, *url.InvalidHostError, *url.Error:
 			return nil, x

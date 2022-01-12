@@ -1,7 +1,6 @@
-set search_path = evesso, public;
 begin;
-drop table characters;
-drop table pkces;
-drop table profiles;
+drop table evesso.characters;
+drop table evesso.pkces;
+drop table evesso.profiles;
 drop extension if exists "uuid-ossp";
 commit;

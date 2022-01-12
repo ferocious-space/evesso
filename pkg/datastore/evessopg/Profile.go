@@ -3,6 +3,7 @@ package evessopg
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -36,7 +37,7 @@ type Profile struct {
 func (p *Profile) AllCharacters(ctx context.Context) ([]evesso.Character, error) {
 	var characters []*Character
 	var result []evesso.Character //nolint:prealloc
-	err := p.store.Select(ctx, sq.Select("*").From("characters").Where(sq.Eq{"profile_ref": p.GetID()}), &characters)
+	err := p.store.Query(ctx, sq.Select("*").From("evesso.characters").Where(sq.Eq{"profile_ref": p.GetID()}), &characters)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +52,7 @@ func (p *Profile) GetCharacter(ctx context.Context, uuid uuid.UUID) (evesso.Char
 	character := new(Character)
 	character.store = p.store
 	rsql, args, err := sq.Select("*").
-		From("characters").
+		From("evesso.characters").
 		Where(sq.Eq{"id": uuid}).PlaceholderFormat(sq.Dollar).ToSql()
 	if err != nil {
 		return nil, err
@@ -83,7 +84,7 @@ func (p *Profile) GetName() string {
 func (p *Profile) FindCharacter(ctx context.Context, characterID int32, characterName string, owner string, scopes []string) (evesso.Character, error) {
 	character := new(Character)
 	character.store = p.store
-	wh := sq.Select("*").From("characters")
+	wh := sq.Select("*").From("evesso.characters")
 	and := sq.And{}
 	if characterID > 0 {
 		and = append(and, sq.Eq{"character_id": characterID})
@@ -97,11 +98,52 @@ func (p *Profile) FindCharacter(ctx context.Context, characterID int32, characte
 	and = append(and, sq.Eq{"profile_ref": p.ID})
 	and = append(and, sq.Expr("scopes @> (?)", scopes))
 	and = append(and, sq.Eq{"active": true})
-	err := p.store.Select(ctx, wh.Where(and), character)
+	err := p.store.Query(ctx, wh.Where(and), character)
 	if err != nil {
 		return nil, err
 	}
 	return character, nil
+}
+
+func InsertGenerate(into string, input interface{}) sq.InsertBuilder {
+	columns := make([]string, 0)
+	values := make([]interface{}, 0)
+	typ := reflect.TypeOf(input)
+	val := reflect.ValueOf(input)
+	switch typ.Kind() {
+	case reflect.Ptr:
+		typ = typ.Elem()
+		val = val.Elem()
+	case reflect.Struct:
+	default:
+		panic("input must be a struct")
+	}
+
+	for f := 0; f < typ.NumField(); f++ {
+		field := typ.Field(f)
+		lookup, ok := field.Tag.Lookup("db")
+		if ok && lookup != "-" {
+			fieldVal := val.Field(f)
+			if fieldVal.Kind() == reflect.Ptr {
+				fieldVal = fieldVal.Elem()
+			}
+			switch fieldVal.Kind() {
+			case reflect.Struct:
+				status := fieldVal.FieldByName("Status")
+				targetType := reflect.TypeOf(pgtype.Present)
+				if status.IsValid() && !status.IsZero() && status.CanInterface() && status.CanConvert(targetType) {
+					if status.Convert(targetType).Interface() == pgtype.Present {
+						columns = append(columns, lookup)
+						values = append(values, fieldVal.Interface())
+					}
+				}
+			default:
+				columns = append(columns, lookup)
+				values = append(values, fieldVal.Interface())
+			}
+		}
+	}
+	return sq.Insert(into).Columns(columns...).Values(values...)
 }
 
 func (p *Profile) CreateCharacter(ctx context.Context, token *oauth2.Token, referenceData interface{}) (evesso.Character, error) {
@@ -182,31 +224,9 @@ func (p *Profile) CreateCharacter(ctx context.Context, token *oauth2.Token, refe
 	if err := character.ReferenceData.Set(marshal); err != nil {
 		return nil, err
 	}
-	sqlb := sq.Insert("characters").
-		Columns("profile_ref",
-			"character_id",
-			"character_name",
-			"owner",
-			"refresh_token",
-			"scopes",
-			"active",
-			"created_at",
-			"updated_at",
-			"access_token",
-			"reference_data").
-		Values(&character.ProfileReference,
-			&character.CharacterID,
-			&character.CharacterName,
-			&character.Owner,
-			&character.RefreshToken,
-			&character.Scopes,
-			&character.Active,
-			&character.CreatedAt,
-			&character.UpdatedAt,
-			&character.AccessToken,
-			&character.ReferenceData).
+	sqlb := InsertGenerate("evesso.characters", character).
 		Suffix("on conflict (profile_ref, character_id, character_name, owner, scopes) do update set refresh_token = excluded.refresh_token returning id")
-	err = p.store.Select(ctx, sqlb, character)
+	err = p.store.Query(ctx, sqlb, character)
 	if err != nil {
 		return nil, err
 	}
@@ -216,19 +236,16 @@ func (p *Profile) CreateCharacter(ctx context.Context, token *oauth2.Token, refe
 func (p *Profile) CreatePKCE(ctx context.Context, referenceData interface{}, scopes ...string) (evesso.PKCE, error) {
 	pkce := MakePKCE(p)
 	pkce.store = p.store
-	rdata := pgtype.JSONB{}
 	marshal, err := json.Marshal(referenceData)
 	if err != nil {
 		return nil, err
 	}
-	err = rdata.Set(marshal)
+	err = pkce.ReferenceData.Set(marshal)
 	if err != nil {
 		return nil, err
 	}
-	err = p.store.Select(ctx, sq.Insert("pkces").
-		Columns("profile_ref", "code_verifier", "code_challange", "scopes", "created_at", "reference_data").
-		Values(pkce.ProfileReference, pkce.CodeVerifier, pkce.CodeChallange, MakeScopes(scopes), pkce.CreatedAt, rdata).
-		Suffix("RETURNING id,state"), pkce)
+	pkce.Scopes = MakeScopes(scopes)
+	err = p.store.Query(ctx, InsertGenerate("evesso.pkces", pkce).Suffix("RETURNING id,state"), pkce)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +253,7 @@ func (p *Profile) CreatePKCE(ctx context.Context, referenceData interface{}, sco
 }
 
 func (p *Profile) Delete(ctx context.Context) error {
-	err := p.store.Exec(ctx, sq.Delete("profiles").Where("id = ?", p.ID))
+	err := p.store.Query(ctx, sq.Delete("evesso.profiles").Where(sq.Eq{"id": p.ID}), nil)
 	if err != nil {
 		return err
 	}

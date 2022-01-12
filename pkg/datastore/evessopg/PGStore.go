@@ -2,10 +2,11 @@ package evessopg
 
 import (
 	"context"
-	"database/sql"
 	"embed"
 	"fmt"
+	"hash/crc32"
 	"reflect"
+	"sync"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
@@ -13,17 +14,18 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/gofrs/uuid"
 	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database/postgres"
+	pgxm "github.com/golang-migrate/migrate/v4/database/pgx"
 	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v4/log/logrusadapter"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/jackc/pgx/v4/stdlib"
+	"github.com/lann/builder"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 
 	"github.com/ferocious-space/evesso"
 	"github.com/ferocious-space/evesso/pkg/datastore/embedfs"
 )
-
-const transactionSSOKey = "transactionSSOKey"
 
 //go:embed migrations/*.sql
 var migrations embed.FS
@@ -31,8 +33,10 @@ var migrations embed.FS
 var _ evesso.DataStore = &PGStore{}
 
 type PGStore struct {
+	sync.Mutex
 	schema     string
 	pool       *pgxpool.Pool
+	lock       *pgxpool.Conn
 	migrations *migrate.Migrate
 }
 
@@ -45,51 +49,33 @@ func (x *PGStore) Setup(ctx context.Context, dsn string) error {
 	return nil
 }
 
-func (x *PGStore) Exec(ctx context.Context, queryer sq.Sqlizer) error {
-	switch q := queryer.(type) {
-	case sq.UpdateBuilder:
-		rsql, args, err := q.PlaceholderFormat(sq.Dollar).ToSql()
-		if err != nil {
-			return err
-		}
-		logr.FromContextOrDiscard(ctx).Info(rsql, "args", args)
-		return x.Connection(ctx, func(ctx context.Context, tx *pgxpool.Conn) error {
-			_, err := tx.Exec(ctx, rsql, args...)
-			if err != nil {
-				return err
-			}
-			return nil
-		})
-	case sq.DeleteBuilder:
-		rsql, args, err := q.PlaceholderFormat(sq.Dollar).ToSql()
-		if err != nil {
-			return err
-		}
-		logr.FromContextOrDiscard(ctx).Info(rsql, "args", args)
-		return x.Connection(ctx, func(ctx context.Context, tx *pgxpool.Conn) error {
-			_, err := tx.Exec(ctx, rsql, args...)
-			if err != nil {
-				return err
-			}
-			return nil
-		})
-	default:
-		return errors.New("unknown query")
+func (x *PGStore) Query(ctx context.Context, queryer sq.Sqlizer, output interface{}) error {
+	q := builder.Set(queryer, "PlaceholderFormat", sq.Dollar).(sq.Sqlizer)
+	rsql, args, err := q.ToSql()
+	if err != nil {
+		return err
 	}
-}
-
-func (x *PGStore) Select(ctx context.Context, queryer sq.Sqlizer, output interface{}) error {
-	switch q := queryer.(type) {
-	case sq.SelectBuilder:
-		rsql, args, err := q.PlaceholderFormat(sq.Dollar).ToSql()
-		if err != nil {
-			return err
-		}
-		logr.FromContextOrDiscard(ctx).Info(rsql, "args", args)
-		return x.Connection(ctx, func(ctx context.Context, tx *pgxpool.Conn) error {
-			switch reflect.TypeOf(output).Kind() {
+	logr.FromContextOrDiscard(ctx).Info(rsql, "args", args)
+	return x.Connection(ctx, func(ctx context.Context, tx *pgxpool.Conn) error {
+		typ := reflect.TypeOf(output)
+		switch typ {
+		case nil:
+			switch queryer.(type) {
+			case sq.SelectBuilder:
+				return errors.Errorf("output cannot be nil")
+			case sq.InsertBuilder, sq.DeleteBuilder, sq.UpdateBuilder:
+				_, err := tx.Exec(ctx, rsql, args...)
+				if err != nil {
+					return err
+				}
+				return nil
+			default:
+				return errors.New("unknown query")
+			}
+		default:
+			switch typ.Kind() {
 			case reflect.Ptr:
-				switch reflect.TypeOf(output).Elem().Kind() {
+				switch typ.Elem().Kind() {
 				case reflect.Slice, reflect.Array:
 					return pgxscan.Select(ctx, tx, output, rsql, args...)
 				default:
@@ -98,19 +84,8 @@ func (x *PGStore) Select(ctx context.Context, queryer sq.Sqlizer, output interfa
 			default:
 				return errors.Errorf("must be pointer not %T", output)
 			}
-		})
-	case sq.InsertBuilder:
-		rsql, args, err := q.PlaceholderFormat(sq.Dollar).ToSql()
-		if err != nil {
-			return err
 		}
-		logr.FromContextOrDiscard(ctx).Info(rsql, "args", args)
-		return x.Connection(ctx, func(ctx context.Context, tx *pgxpool.Conn) error {
-			return pgxscan.Get(ctx, tx, output, rsql, args...)
-		})
-	default:
-		return errors.New("unknown query")
-	}
+	})
 }
 
 func (x *PGStore) Connection(ctx context.Context, f func(ctx context.Context, tx *pgxpool.Conn) error) error {
@@ -131,6 +106,84 @@ func (x *PGStore) Transaction(ctx context.Context, f func(ctx context.Context, t
 			return f(ctx, tx)
 		},
 	)
+}
+
+func (x *PGStore) GLock(key1 interface{}) {
+	x.Lock()
+	defer x.Unlock()
+	ctx, cancel := context.WithTimeout(context.TODO(), time.Duration(1)*time.Minute)
+	defer cancel()
+	if x.lock == nil {
+		acquire, err := x.pool.Acquire(context.Background())
+		if err != nil {
+			return
+		}
+		x.lock = acquire
+	}
+	err := x.lock.Ping(ctx)
+	if err != nil {
+		panic(err)
+	}
+	switch t := key1.(type) {
+	case int64:
+		if _, err = x.lock.Exec(ctx, "SELECT pg_advisory_lock($1)", key1); err != nil {
+			panic(err)
+		}
+	case int32:
+		if _, err = x.lock.Exec(ctx, "SELECT pg_advisory_lock($1)", key1); err != nil {
+			panic(err)
+		}
+	case int:
+		if _, err = x.lock.Exec(ctx, "SELECT pg_advisory_lock($1)", key1); err != nil {
+			panic(err)
+		}
+	case string:
+		if _, err = x.lock.Exec(ctx, "SELECT pg_advisory_lock($1)", crc32.ChecksumIEEE([]byte(t))); err != nil {
+			panic(err)
+		}
+	case []byte:
+		if _, err = x.lock.Exec(ctx, "SELECT pg_advisory_lock($1)", crc32.ChecksumIEEE(t)); err != nil {
+			panic(err)
+		}
+	default:
+		panic("unknown type")
+	}
+}
+
+func (x *PGStore) GUnlock(key1 interface{}) {
+	x.Lock()
+	defer x.Unlock()
+	ctx, cancel := context.WithTimeout(context.TODO(), time.Duration(1)*time.Minute)
+	defer cancel()
+	err := x.lock.Ping(ctx)
+	if err != nil {
+		panic(err)
+	}
+
+	switch t := key1.(type) {
+	case int64:
+		if _, err = x.lock.Exec(ctx, "SELECT pg_advisory_unlock($1)", key1); err != nil {
+			panic(err)
+		}
+	case int32:
+		if _, err = x.lock.Exec(ctx, "SELECT pg_advisory_unlock($1)", key1); err != nil {
+			panic(err)
+		}
+	case int:
+		if _, err = x.lock.Exec(ctx, "SELECT pg_advisory_unlock($1)", key1); err != nil {
+			panic(err)
+		}
+	case string:
+		if _, err = x.lock.Exec(ctx, "SELECT pg_advisory_unlock($1)", crc32.ChecksumIEEE([]byte(t))); err != nil {
+			panic(err)
+		}
+	case []byte:
+		if _, err = x.lock.Exec(ctx, "SELECT pg_advisory_unlock($1)", crc32.ChecksumIEEE(t)); err != nil {
+			panic(err)
+		}
+	default:
+		panic("unknown type")
+	}
 }
 
 type migrationLogger struct {
@@ -159,61 +212,28 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 	}
 
 	data := new(PGStore)
-
 	config, err := pgxpool.ParseConfig(dsn)
+	config.ConnConfig.LogLevel = pgx.LogLevelTrace
+	config.ConnConfig.Logger = logrusadapter.NewLogger(logrus.New())
 	if err != nil {
 		return nil, err
 	}
-	config.MaxConns = 50
-	config.MinConns = 5
-	config.HealthCheckPeriod = 30 * time.Second
-	config.MaxConnIdleTime = 1 * time.Minute
-	config.MaxConnLifetime = 5 * time.Minute
-
-	schema := ""
-	if config.ConnConfig.User == "postgres" {
-		schema = "public"
-		config.ConnConfig.RuntimeParams["search_path"] = "evesso, public"
-	} else {
-		schema = "evesso"
-		config.ConnConfig.RuntimeParams["search_path"] = fmt.Sprintf("evesso, %s, public", config.ConnConfig.User)
-	}
-
-	pool, err := pgxpool.ConnectConfig(ctx, config)
-	if err != nil {
-		return nil, err
-	}
-	data.pool = pool
-
-	if err := pool.AcquireFunc(
-		ctx, func(conn *pgxpool.Conn) error {
-			if _, err := conn.Exec(ctx, fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS evesso AUTHORIZATION %s", config.ConnConfig.User)); err != nil {
-				return err
-			}
-			return nil
-		},
-	); err != nil {
-		return nil, err
-	}
-	data.pool = pool
-
-	sqlDB, err := sql.Open("pgx", stdlib.RegisterConnConfig(config.ConnConfig.Copy()))
+	data.pool, err = pgxpool.ConnectConfig(ctx, config)
 	if err != nil {
 		return nil, err
 	}
 
-	instance, err := postgres.WithInstance(
-		sqlDB, &postgres.Config{
-			MigrationsTable:  "schema_migrations",
+	instance, err := pgxm.WithInstance(
+		stdlib.OpenDB(*config.ConnConfig),
+		&pgxm.Config{
+			MigrationsTable:  "migrations",
 			DatabaseName:     config.ConnConfig.Database,
-			SchemaName:       schema,
 			StatementTimeout: 1 * time.Minute,
 		},
 	)
 	if err != nil {
 		return nil, err
 	}
-
 	data.migrations, err = migrate.NewWithInstance("embedFS", driver, "postgres", instance)
 	if err != nil {
 		return nil, err
@@ -241,12 +261,7 @@ func (x *PGStore) NewProfile(ctx context.Context, profileName string) (evesso.Pr
 	if err := profile.UpdatedAt.Set(time.Now()); err != nil {
 		return nil, err
 	}
-	err := x.Select(ctx,
-		sq.Insert("profiles").
-			Columns("profile_name", "created_at", "updated_at").
-			Values(profile.ProfileName, profile.CreatedAt, profile.UpdatedAt).
-			Suffix("returning id"),
-		profile)
+	err := x.Query(ctx, InsertGenerate("evesso.profiles", profile).Suffix("RETURNING id"), profile)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +271,7 @@ func (x *PGStore) NewProfile(ctx context.Context, profileName string) (evesso.Pr
 func (x *PGStore) AllProfiles(ctx context.Context) ([]evesso.Profile, error) {
 	result := make([]evesso.Profile, 0)
 	var profiles []*Profile
-	err := x.Select(ctx, sq.Select("*").From("profiles"), &profiles)
+	err := x.Query(ctx, sq.Select("*").From("evesso.profiles"), &profiles)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +285,7 @@ func (x *PGStore) AllProfiles(ctx context.Context) ([]evesso.Profile, error) {
 func (x *PGStore) GetProfile(ctx context.Context, profileID uuid.UUID) (evesso.Profile, error) {
 	profile := new(Profile)
 	profile.store = x
-	err := x.Select(ctx, sq.Select("*").From("profiles").Where(sq.Eq{"id": profileID}), profile)
+	err := x.Query(ctx, sq.Select("*").From("evesso.profiles").Where(sq.Eq{"id": profileID}), profile)
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +295,7 @@ func (x *PGStore) GetProfile(ctx context.Context, profileID uuid.UUID) (evesso.P
 func (x *PGStore) FindProfile(ctx context.Context, profileName string) (evesso.Profile, error) {
 	profile := new(Profile)
 	profile.store = x
-	err := x.Select(ctx, sq.Select("*").From("profiles").Where(sq.Eq{"profile_name": profileName}), profile)
+	err := x.Query(ctx, sq.Select("*").From("evesso.profiles").Where(sq.Eq{"profile_name": profileName}), profile)
 	if err != nil {
 		return nil, err
 	}
@@ -288,18 +303,44 @@ func (x *PGStore) FindProfile(ctx context.Context, profileName string) (evesso.P
 }
 
 func (x *PGStore) DeleteProfile(ctx context.Context, profileID uuid.UUID) error {
-	err := x.Exec(ctx, sq.Delete("profiles").Where("id = ?", profileID))
+	err := x.Query(ctx, sq.Delete("evesso.profiles").Where(sq.Eq{"id": profileID}), nil)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
+//func (x *PGStore) FindCharacter(ctx context.Context, IDorName interface{}) (evesso.Profile, evesso.Character, error) {
+//	character := new(Character)
+//	character.store = x
+//
+//	wh := sq.Select("*").From("evesso.characters")
+//	wcl := sq.And{}
+//	switch data := IDorName.(type) {
+//	case int32:
+//		wcl = append(wcl, sq.Eq{"character_id": data})
+//	case string:
+//		wcl = append(wcl, sq.Eq{"character_name": data})
+//	default:
+//		return nil, nil, errors.Errorf("IDorName(%T) must be int32 or string", IDorName)
+//	}
+//	wcl = append(wcl, sq.Eq{"active": true})
+//	err := x.Query(ctx, wh.Where(wcl), character)
+//	if err != nil {
+//		return nil, nil, err
+//	}
+//	profile, err := x.GetProfile(ctx, character.GetProfileID())
+//	if err != nil {
+//		return nil, nil, err
+//	}
+//	return profile, character, nil
+//}
+
 func (x *PGStore) FindCharacter(ctx context.Context, characterID int32, characterName string, Owner string) (evesso.Profile, evesso.Character, error) {
 	character := new(Character)
 	character.store = x
 
-	wh := sq.Select("*").From("characters")
+	wh := sq.Select("*").From("evesso.characters")
 	wcl := sq.And{}
 	if characterID > 0 {
 		wcl = append(wcl, sq.Eq{"character_id": characterID})
@@ -311,7 +352,7 @@ func (x *PGStore) FindCharacter(ctx context.Context, characterID int32, characte
 		wcl = append(wcl, sq.Eq{"owner": Owner})
 	}
 	wcl = append(wcl, sq.Eq{"active": true})
-	err := x.Select(ctx, wh.Where(wcl), character)
+	err := x.Query(ctx, wh.Where(wcl), character)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -325,7 +366,14 @@ func (x *PGStore) FindCharacter(ctx context.Context, characterID int32, characte
 func (x *PGStore) GetPKCE(ctx context.Context, pkceID uuid.UUID) (evesso.PKCE, error) {
 	pkce := new(PKCE)
 	pkce.store = x
-	err := x.Select(ctx, sq.Select("*").From("pkces").Where("id = ? AND created_at > ?", pkceID, time.Now().Add(-5*time.Minute)), pkce)
+	err := x.Query(ctx, sq.Select("*").
+		From("evesso.pkces").
+		Where(
+			sq.And{
+				sq.Eq{"id": pkceID},
+				sq.Gt{"created_at": time.Now().Add(-5 * time.Minute)},
+			}),
+		pkce)
 	if err != nil {
 		return nil, err
 	}
@@ -335,7 +383,15 @@ func (x *PGStore) GetPKCE(ctx context.Context, pkceID uuid.UUID) (evesso.PKCE, e
 func (x *PGStore) FindPKCE(ctx context.Context, state uuid.UUID) (evesso.PKCE, error) {
 	pkce := new(PKCE)
 	pkce.store = x
-	err := x.Select(ctx, sq.Select("*").From("pkces").Where("state = ? AND created_at > ?", state, time.Now().Add(-5*time.Minute)), pkce)
+	err := x.Query(ctx,
+		sq.Select("*").
+			From("evesso.pkces").
+			Where(
+				sq.And{
+					sq.Eq{"state": state},
+					sq.Gt{"created_at": time.Now().Add(-5 * time.Minute)},
+				}),
+		pkce)
 	if err != nil {
 		return nil, err
 	}
@@ -343,7 +399,10 @@ func (x *PGStore) FindPKCE(ctx context.Context, state uuid.UUID) (evesso.PKCE, e
 }
 
 func (x *PGStore) CleanPKCE(ctx context.Context) error {
-	err := x.Exec(ctx, sq.Delete("pkces").Where("created_at < ?", time.Now().Add(-(5*time.Minute+1*time.Second))))
+	err := x.Query(ctx, sq.Delete("evesso.pkces").
+		Where(
+			sq.Lt{"created_at": time.Now().Add(-(5*time.Minute + 1*time.Second))},
+		), nil)
 	if err != nil {
 		return err
 	}

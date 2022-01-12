@@ -32,7 +32,7 @@ func main() {
 		log.Fatalln(err)
 		return
 	}
-	source, err := config.TokenSource(defaultProfile.GetID(), "Ferocious Bite", evesso.ALL_SCOPES...)
+	source, err := config.TokenSource(defaultProfile.GetID(), "Ros Ivi", evesso.ALL_SCOPES...)
 	if err != nil {
 		log.Fatalln(err)
 		return
@@ -60,6 +60,10 @@ func main() {
 			return
 		}
 		for _, c := range characters {
+			_, err := c.Token()
+			if err != nil {
+				return
+			}
 			characterSource, err := config.CharacterSource(c)
 			if err != nil {
 				return

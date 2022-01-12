@@ -10,10 +10,7 @@ import (
 
 type DataStore interface {
 	Setup(ctx context.Context, dsn string) error
-	ProfileStore
-}
 
-type ProfileStore interface {
 	NewProfile(ctx context.Context, profileName string) (Profile, error)
 
 	AllProfiles(ctx context.Context) ([]Profile, error)

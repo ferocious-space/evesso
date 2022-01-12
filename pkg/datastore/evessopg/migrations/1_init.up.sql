@@ -1,7 +1,7 @@
-create extension if not exists "uuid-ossp" with schema public;
-set search_path = evesso, public;
 begin;
-create table if not exists profiles
+create schema if not exists evesso;
+create extension if not exists "uuid-ossp" with schema public;
+create table if not exists evesso.profiles
 (
     id           uuid        not null DEFAULT uuid_generate_v4(),
     profile_name text        not null,
@@ -12,9 +12,9 @@ create table if not exists profiles
 );
 
 create unique index if not exists profiles_profile_name_idx
-    on profiles (profile_name);
+    on evesso.profiles (profile_name);
 
-create table if not exists pkces
+create table if not exists evesso.pkces
 (
     id                    uuid        not null DEFAULT uuid_generate_v4(),
     profile_ref           uuid        not null,
@@ -23,18 +23,19 @@ create table if not exists pkces
     code_challange        text        not null,
     code_challange_method text                 default 'S256'::character varying not null,
     scopes                text[],
+    reference_data        jsonb,
     created_at            timestamptz not null,
     constraint pkces_pkey
         primary key (id),
     constraint pkce_profile_fk
-        foreign key (profile_ref) references profiles
+        foreign key (profile_ref) references evesso.profiles
             on delete cascade
 );
 
 create unique index if not exists pkces_state_idx
-    on pkces (state);
+    on evesso.pkces (state);
 
-create table if not exists characters
+create table if not exists evesso.characters
 (
     id             uuid        not null DEFAULT uuid_generate_v4(),
     profile_ref    uuid        not null,
@@ -44,27 +45,29 @@ create table if not exists characters
     refresh_token  text        not null,
     scopes         text[],
     active         boolean     not null,
+    access_token   text,
+    reference_data jsonb,
     created_at     timestamptz not null,
     updated_at     timestamptz not null,
     constraint characters_pkey
         primary key (id),
     constraint character_profile_fk
-        foreign key (profile_ref) references profiles
+        foreign key (profile_ref) references evesso.profiles
             on delete cascade
 );
 
 create unique index if not exists characters_profile_ref_character_id_character_name_owner_scopes
-    on characters (profile_ref, character_id, character_name, owner, scopes);
+    on evesso.characters (profile_ref, character_id, character_name, owner, scopes);
 
 create index if not exists characters_character_id_idx
-    on characters (character_id);
+    on evesso.characters (character_id);
 
 create index if not exists characters_character_name_idx
-    on characters (character_name);
+    on evesso.characters (character_name);
 
 create index if not exists characters_owner_idx
-    on characters (owner);
+    on evesso.characters (owner);
 
 create index if not exists characters_scopes_idx
-    on characters (scopes);
+    on evesso.characters (scopes);
 commit;

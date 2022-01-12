@@ -91,7 +91,7 @@ func (p *PKCE) GetProfile(ctx context.Context) (evesso.Profile, error) {
 }
 
 func (p *PKCE) Destroy(ctx context.Context) error {
-	err := p.store.Exec(ctx, sq.Delete("pkces").Where("id = ?", p.ID))
+	err := p.store.Query(ctx, sq.Delete("evesso.pkces").Where(sq.Eq{"id": p.ID}), nil)
 	if err != nil {
 		return err
 	}

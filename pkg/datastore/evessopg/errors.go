@@ -6,6 +6,7 @@ import (
 
 	//"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgconn"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v4"
 	//"github.com/lib/pq"
 	"github.com/pkg/errors"
@@ -37,9 +38,13 @@ func HandleError(err error) error {
 	switch e := errors.Cause(err).(type) {
 	case *pgconn.PgError:
 		switch e.Code {
-		case "23505": // "unique_violation"
+		case pgerrcode.NoActiveSQLTransaction:
+			return errors.Wrap(ErrNoTranscationOpen, e.Error())
+		case pgerrcode.ActiveSQLTransaction:
+			return errors.Wrap(ErrTranscationOpen, e.Error())
+		case pgerrcode.UniqueViolation: // "unique_violation"
 			return errors.Wrap(ErrUniqueViolation, e.Error())
-		case "40001": // "serialization_failure"
+		case pgerrcode.SerializationFailure: // "serialization_failure"
 			return errors.Wrap(ErrConcurrentUpdate, e.Error())
 		}
 	}

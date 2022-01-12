@@ -56,14 +56,16 @@ func (c *Character) GetReferenceData() interface{} {
 func (c *Character) UpdateAccessToken(ctx context.Context, AccessToken string) error {
 	c.Lock()
 	defer c.Unlock()
+	c.store.GLock(c.CharacterID.Get())
+	defer c.store.GUnlock(c.CharacterID.Get())
 	err := c.AccessToken.Set(AccessToken)
 	if err != nil {
 		return err
 	}
-	err = c.store.Exec(ctx, sq.Update("characters").
+	err = c.store.Query(ctx, sq.Update("evesso.characters").
 		Set("access_token", c.AccessToken).
 		Set("updated_at", time.Now()).
-		Where(sq.Eq{"id": c.ID}))
+		Where(sq.Eq{"id": c.ID}), nil)
 	if err != nil {
 		return err
 	}
@@ -125,14 +127,16 @@ func (c *Character) GetProfile(ctx context.Context) (evesso.Profile, error) {
 func (c *Character) UpdateRefreshToken(ctx context.Context, RefreshToken string) error {
 	c.Lock()
 	defer c.Unlock()
+	c.store.GLock(c.CharacterID.Get())
+	defer c.store.GUnlock(c.CharacterID.Get())
 	err := c.RefreshToken.Set(RefreshToken)
 	if err != nil {
 		return err
 	}
-	err = c.store.Exec(ctx, sq.Update("characters").
+	err = c.store.Query(ctx, sq.Update("evesso.characters").
 		Set("refresh_token", c.RefreshToken).
 		Set("updated_at", time.Now()).
-		Where(sq.Eq{"id": c.ID}))
+		Where(sq.Eq{"id": c.ID}), nil)
 	if err != nil {
 		return err
 	}
@@ -142,6 +146,8 @@ func (c *Character) UpdateRefreshToken(ctx context.Context, RefreshToken string)
 func (c *Character) UpdateActiveState(ctx context.Context, active bool) error {
 	c.Lock()
 	defer c.Unlock()
+	c.store.GLock(c.CharacterID.Get())
+	defer c.store.GUnlock(c.CharacterID.Get())
 	old := false
 	err := c.Active.AssignTo(&old)
 	if err != nil {
@@ -151,7 +157,7 @@ func (c *Character) UpdateActiveState(ctx context.Context, active bool) error {
 	if err != nil {
 		return err
 	}
-	err = c.store.Exec(ctx, sq.Update("characters").Set("active", c.Active).Set("updated_at", time.Now()))
+	err = c.store.Query(ctx, sq.Update("evesso.characters").Set("active", c.Active).Set("updated_at", time.Now()), nil)
 	if err != nil {
 		err := c.Active.Set(old)
 		if err != nil {
@@ -163,12 +169,16 @@ func (c *Character) UpdateActiveState(ctx context.Context, active bool) error {
 }
 
 func (c *Character) Token() (*oauth2.Token, error) {
+	c.Lock()
+	defer c.Unlock()
+	c.store.GLock(c.CharacterID.Get())
+	defer c.store.GUnlock(c.CharacterID.Get())
 	timeout, cancelFunc := context.WithTimeout(context.TODO(), 1*time.Minute)
 	defer cancelFunc()
-	err := c.store.Select(timeout, sq.
-		Select("access_token,refresh_token").
-		From("characters").
-		Where("id = ?", c.ID),
+	err := c.store.Query(timeout,
+		sq.Select("access_token", "refresh_token").
+			From("evesso.characters").
+			Where(sq.Eq{"id": c.ID}),
 		c)
 	if err != nil {
 		return nil, err
@@ -191,7 +201,7 @@ func (c *Character) Token() (*oauth2.Token, error) {
 }
 
 func (c *Character) Delete(ctx context.Context) error {
-	err := c.store.Exec(ctx, sq.Delete("characters").Where("id = ?", c.ID))
+	err := c.store.Query(ctx, sq.Delete("evesso.characters").Where(sq.Eq{"id": c.ID}), nil)
 	if err != nil {
 		return err
 	}
