@@ -32,7 +32,7 @@ func main() {
 		log.Fatalln(err)
 		return
 	}
-	source, err := config.TokenSource(defaultProfile.GetID(), "Ros Ivi", evesso.ALL_SCOPES...)
+	source, err := config.TokenSource(defaultProfile.GetID(), "Ros Ovi", evesso.ALL_SCOPES...)
 	if err != nil {
 		log.Fatalln(err)
 		return
@@ -68,7 +68,8 @@ func main() {
 			if err != nil {
 				return
 			}
-			err = c.UpdateActiveState(newContext, characterSource.Valid())
+			isvalid := characterSource.Valid()
+			err = c.UpdateActiveState(newContext, isvalid)
 			if err != nil {
 				return
 			}

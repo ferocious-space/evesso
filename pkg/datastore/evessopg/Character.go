@@ -157,7 +157,7 @@ func (c *Character) UpdateActiveState(ctx context.Context, active bool) error {
 	if err != nil {
 		return err
 	}
-	err = c.store.Query(ctx, sq.Update("evesso.characters").Set("active", c.Active).Set("updated_at", time.Now()), nil)
+	err = c.store.Query(ctx, sq.Update("evesso.characters").Set("active", c.Active).Set("updated_at", time.Now()).Where(sq.Eq{"id": c.ID}), nil)
 	if err != nil {
 		err := c.Active.Set(old)
 		if err != nil {
