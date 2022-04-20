@@ -125,9 +125,6 @@ func (o *ssoTokenSource) Token() (*oauth2.Token, error) {
 		o.token = l
 
 	}
-	if terr := o.character.UpdateActiveState(o.ctx, true); terr != nil {
-		return nil, terr
-	}
 	return o.token, nil
 }
 

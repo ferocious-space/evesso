@@ -11,7 +11,7 @@ import (
 type DataStore interface {
 	Setup(ctx context.Context, dsn string) error
 
-	NewProfile(ctx context.Context, profileName string) (Profile, error)
+	NewProfile(ctx context.Context, profileName string, data interface{}) (Profile, error)
 
 	AllProfiles(ctx context.Context) ([]Profile, error)
 	GetProfile(ctx context.Context, profileID uuid.UUID) (Profile, error)
@@ -27,6 +27,7 @@ type DataStore interface {
 type Profile interface {
 	GetID() uuid.UUID
 	GetName() string
+	GetData() interface{}
 
 	AllCharacters(ctx context.Context) ([]Character, error)
 	GetCharacter(ctx context.Context, uuid uuid.UUID) (Character, error)

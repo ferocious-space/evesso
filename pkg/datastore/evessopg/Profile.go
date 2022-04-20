@@ -28,10 +28,20 @@ type Profile struct {
 	ID pgtype.UUID `json:"id" db:"id"`
 
 	// ProfileType can be used to define custom profile types , e.g. service bot that uses multiple characters to query esi for information
-	ProfileName pgtype.Text `json:"profile_name" db:"profile_name"`
+	ProfileName pgtype.Text  `json:"profile_name" db:"profile_name"`
+	Data        pgtype.JSONB `json:"data" db:"data"`
 
 	CreatedAt pgtype.Timestamptz `json:"created_at" db:"created_at"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at" db:"updated_at"`
+}
+
+func (p *Profile) GetData() interface{} {
+	var out interface{}
+	err := p.Data.AssignTo(&out)
+	if err != nil {
+		return nil
+	}
+	return out
 }
 
 func (p *Profile) AllCharacters(ctx context.Context) ([]evesso.Character, error) {

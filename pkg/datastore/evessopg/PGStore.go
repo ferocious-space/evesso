@@ -15,6 +15,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/golang-migrate/migrate/v4"
 	pgxm "github.com/golang-migrate/migrate/v4/database/pgx"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/log/logrusadapter"
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -24,7 +25,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/ferocious-space/evesso"
-	"github.com/ferocious-space/evesso/pkg/datastore/embedfs"
 )
 
 //go:embed migrations/*.sql
@@ -206,7 +206,7 @@ func (m *migrationLogger) Verbose() bool {
 func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 	var err error
 
-	driver, err := embedfs.New(migrations, "migrations")
+	driver, err := iofs.New(migrations, "migrations")
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +226,7 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 	instance, err := pgxm.WithInstance(
 		stdlib.OpenDB(*config.ConnConfig),
 		&pgxm.Config{
-			MigrationsTable:  "migrations",
+			MigrationsTable:  "sso_migrations",
 			DatabaseName:     config.ConnConfig.Database,
 			StatementTimeout: 1 * time.Minute,
 		},
@@ -234,7 +234,7 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	data.migrations, err = migrate.NewWithInstance("embedFS", driver, "postgres", instance)
+	data.migrations, err = migrate.NewWithInstance("iofs", driver, "postgres", instance)
 	if err != nil {
 		return nil, err
 	}
@@ -249,10 +249,13 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 	return data, nil
 }
 
-func (x *PGStore) NewProfile(ctx context.Context, profileName string) (evesso.Profile, error) {
+func (x *PGStore) NewProfile(ctx context.Context, profileName string, data interface{}) (evesso.Profile, error) {
 	profile := new(Profile)
 	profile.store = x
 	if err := profile.ProfileName.Set(profileName); err != nil {
+		return nil, err
+	}
+	if err := profile.Data.Set(data); err != nil {
 		return nil, err
 	}
 	if err := profile.CreatedAt.Set(time.Now()); err != nil {

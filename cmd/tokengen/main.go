@@ -22,7 +22,7 @@ func main() {
 	}
 	defaultProfile, err := config.Store().FindProfile(newContext, "default")
 	if err != nil {
-		defaultProfile, err = config.Store().NewProfile(newContext, "default")
+		defaultProfile, err = config.Store().NewProfile(newContext, "default", nil)
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -32,7 +32,7 @@ func main() {
 		log.Fatalln(err)
 		return
 	}
-	source, err := config.TokenSource(defaultProfile.GetID(), "Ros Ovi", evesso.ALL_SCOPES...)
+	source, err := config.TokenSource(defaultProfile.GetID(), "Ferocious Bite", evesso.ALL_SCOPES...)
 	if err != nil {
 		log.Fatalln(err)
 		return
@@ -60,18 +60,12 @@ func main() {
 			return
 		}
 		for _, c := range characters {
-			_, err := c.Token()
-			if err != nil {
-				return
-			}
 			characterSource, err := config.CharacterSource(c)
 			if err != nil {
 				return
 			}
-			isvalid := characterSource.Valid()
-			err = c.UpdateActiveState(newContext, isvalid)
-			if err != nil {
-				return
+			if !characterSource.Valid() {
+				fmt.Println("invalid")
 			}
 		}
 	}

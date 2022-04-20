@@ -1,6 +1,6 @@
 begin;
-drop table evesso.characters;
-drop table evesso.pkces;
-drop table evesso.profiles;
-drop extension if exists "uuid-ossp";
+drop table if exists evesso.characters cascade;
+drop table if exists evesso.pkces cascade;
+drop table if exists evesso.profiles cascade;
+drop schema if exists evesso cascade;
 commit;

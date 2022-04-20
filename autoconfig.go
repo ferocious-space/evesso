@@ -269,6 +269,7 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 				}
 			}
 			_ = r.store.CleanPKCE(ctx)
+
 			return c.JSON(http.StatusOK, token)
 		},
 	)

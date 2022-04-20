@@ -1,10 +1,10 @@
 begin;
 create schema if not exists evesso;
-create extension if not exists "uuid-ossp" with schema public;
 create table if not exists evesso.profiles
 (
     id           uuid        not null DEFAULT uuid_generate_v4(),
     profile_name text        not null,
+    data         jsonb,
     created_at   timestamptz not null,
     updated_at   timestamptz not null,
     constraint profiles_pkey
@@ -18,7 +18,7 @@ create table if not exists evesso.pkces
 (
     id                    uuid        not null DEFAULT uuid_generate_v4(),
     profile_ref           uuid        not null,
-    state                 text        not null DEFAULT uuid_generate_v4(),
+    state                 uuid        not null DEFAULT uuid_generate_v4(),
     code_verifier         text        not null,
     code_challange        text        not null,
     code_challange_method text                 default 'S256'::character varying not null,
