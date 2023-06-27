@@ -9,12 +9,9 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/georgysavva/scany/pgxscan"
-	"github.com/go-logr/logr"
 	"github.com/goccy/go-json"
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgtype"
-	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/lestrrat-go/jwx/jwt"
 	"golang.org/x/oauth2"
 
@@ -61,16 +58,10 @@ func (p *Profile) AllCharacters(ctx context.Context) ([]evesso.Character, error)
 func (p *Profile) GetCharacter(ctx context.Context, uuid uuid.UUID) (evesso.Character, error) {
 	character := new(Character)
 	character.store = p.store
-	rsql, args, err := sq.Select("*").
+	q := sq.Select("*").
 		From("evesso.characters").
-		Where(sq.Eq{"id": uuid}).PlaceholderFormat(sq.Dollar).ToSql()
-	if err != nil {
-		return nil, err
-	}
-	logr.FromContextOrDiscard(ctx).Info(rsql, "id", uuid.String())
-	err = p.store.Connection(ctx, func(ctx context.Context, tx *pgxpool.Conn) error {
-		return pgxscan.Get(ctx, tx, character, rsql, args...)
-	})
+		Where(sq.Eq{"id": uuid})
+	err := p.store.Query(ctx, q, character)
 	if err != nil {
 		return nil, err
 	}

@@ -51,13 +51,12 @@ create table if not exists evesso.characters
     updated_at     timestamptz not null,
     constraint characters_pkey
         primary key (id),
+    constraint characters_identity
+        unique (profile_ref, character_id, character_name, owner, scopes),
     constraint character_profile_fk
         foreign key (profile_ref) references evesso.profiles
             on delete cascade
 );
-
-create unique index if not exists characters_profile_ref_character_id_character_name_owner_scopes
-    on evesso.characters (profile_ref, character_id, character_name, owner, scopes);
 
 create index if not exists characters_character_id_idx
     on evesso.characters (character_id);

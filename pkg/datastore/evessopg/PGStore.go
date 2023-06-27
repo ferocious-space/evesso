@@ -227,6 +227,7 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 		stdlib.OpenDB(*config.ConnConfig),
 		&pgxm.Config{
 			MigrationsTable:  "sso_migrations",
+			SchemaName:       "evesso",
 			DatabaseName:     config.ConnConfig.Database,
 			StatementTimeout: 1 * time.Minute,
 		},
@@ -312,32 +313,6 @@ func (x *PGStore) DeleteProfile(ctx context.Context, profileID uuid.UUID) error 
 	}
 	return nil
 }
-
-//func (x *PGStore) FindCharacter(ctx context.Context, IDorName interface{}) (evesso.Profile, evesso.Character, error) {
-//	character := new(Character)
-//	character.store = x
-//
-//	wh := sq.Select("*").From("evesso.characters")
-//	wcl := sq.And{}
-//	switch data := IDorName.(type) {
-//	case int32:
-//		wcl = append(wcl, sq.Eq{"character_id": data})
-//	case string:
-//		wcl = append(wcl, sq.Eq{"character_name": data})
-//	default:
-//		return nil, nil, errors.Errorf("IDorName(%T) must be int32 or string", IDorName)
-//	}
-//	wcl = append(wcl, sq.Eq{"active": true})
-//	err := x.Query(ctx, wh.Where(wcl), character)
-//	if err != nil {
-//		return nil, nil, err
-//	}
-//	profile, err := x.GetProfile(ctx, character.GetProfileID())
-//	if err != nil {
-//		return nil, nil, err
-//	}
-//	return profile, character, nil
-//}
 
 func (x *PGStore) FindCharacter(ctx context.Context, characterID int32, characterName string, Owner string) (evesso.Profile, evesso.Character, error) {
 	character := new(Character)

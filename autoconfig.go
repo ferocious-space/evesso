@@ -14,6 +14,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/lestrrat-go/jwx/jwk"
+	"github.com/lestrrat-go/jwx/jwt"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/oauth2"
@@ -87,7 +88,7 @@ func (r *EVESSO) AppConfig() *appConfig {
 	return r.cfg
 }
 
-func (r *EVESSO) OAuth2(scopes ...string) *oauth2.Config {
+func (r *EVESSO) oAuth2(scopes ...string) *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:     r.cfg.Key,
 		ClientSecret: r.cfg.Secret,
@@ -109,7 +110,7 @@ func (r *EVESSO) TokenSource(profileID uuid.UUID, CharacterName string, Scopes .
 	return &ssoTokenSource{
 		token:       nil,
 		ctx:         context.WithValue(r.ctx, oauth2.HTTPClient, r.client),
-		oauthConfig: r.OAuth2(Scopes...),
+		oauthConfig: r.oAuth2(Scopes...),
 		jwkfn: func() (jwk.Set, error) {
 			return r.refresher.Fetch(r.ctx, r.JwksURI)
 		},
@@ -123,7 +124,7 @@ func (r *EVESSO) CharacterSource(character Character) (*ssoTokenSource, error) {
 	return &ssoTokenSource{
 		token:       nil,
 		ctx:         context.WithValue(r.ctx, oauth2.HTTPClient, r.client),
-		oauthConfig: r.OAuth2(character.GetScopes()...),
+		oauthConfig: r.oAuth2(character.GetScopes()...),
 		jwkfn: func() (jwk.Set, error) {
 			return r.refresher.Fetch(r.ctx, r.JwksURI)
 		},
@@ -135,7 +136,7 @@ func (r *EVESSO) CharacterSource(character Character) (*ssoTokenSource, error) {
 }
 
 func (r *EVESSO) AuthUrl(pkce PKCE) string {
-	return r.OAuth2(pkce.GetScopes()...).AuthCodeURL(
+	return r.oAuth2(pkce.GetScopes()...).AuthCodeURL(
 		pkce.GetState().String(),
 		oauth2.AccessTypeOffline,
 		oauth2.SetAuthURLParam("code_challange", pkce.GetCodeChallange()),
@@ -168,7 +169,7 @@ func (r *EVESSO) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	//get the token
-	token, err := r.OAuth2().Exchange(
+	token, err := r.oAuth2().Exchange(
 		r.ctx,
 		code,
 		oauth2.SetAuthURLParam("code_verifier", pkce.GetCodeVerifier()),
@@ -247,7 +248,7 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 				}
 			}
 
-			token, err := r.OAuth2().Exchange(
+			token, err := r.oAuth2().Exchange(
 				ctx,
 				code,
 				oauth2.SetAuthURLParam("code_verifier", pkce.GetCodeVerifier()),
@@ -269,8 +270,11 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 				}
 			}
 			_ = r.store.CleanPKCE(ctx)
-
-			return c.JSON(http.StatusOK, token)
+			parse, err := jwt.Parse([]byte(token.AccessToken))
+			if err != nil {
+				return err
+			}
+			return c.JSON(http.StatusOK, parse)
 		},
 	)
 

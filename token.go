@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
@@ -63,6 +64,12 @@ func (o *ssoTokenSource) jwt(token *oauth2.Token) (jwt.Token, error) {
 func (o *ssoTokenSource) validate(token jwt.Token) error {
 	return jwt.Validate(
 		token,
+		jwt.WithValidator(jwt.ValidatorFunc(func(ctx context.Context, token jwt.Token) error {
+			if token.IssuedAt().Before(time.Now()) {
+				return nil
+			}
+			return errors.New("invalid IAT")
+		})),
 		jwt.WithIssuer(CONST_ISSUER), jwt.WithClaimValue("azp", o.oauthConfig.ClientID),
 		jwt.WithSubject(fmt.Sprintf("CHARACTER:EVE:%d", o.character.GetCharacterID())), jwt.WithClaimValue("owner", o.character.GetOwner()),
 	)

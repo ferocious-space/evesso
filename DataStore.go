@@ -72,7 +72,7 @@ type Character interface {
 	Delete(ctx context.Context) error
 }
 
-func MatchScopes(x, y []string) bool {
+func MatchScopes[T comparable](x, y []T) bool {
 	xLen := len(x)
 	yLen := len(y)
 	if xLen != yLen {
@@ -84,7 +84,7 @@ func MatchScopes(x, y []string) bool {
 		return elementsMatchByLoop(x, y)
 	}
 }
-func elementsMatchByLoop(x, y []string) bool {
+func elementsMatchByLoop[T comparable](x, y []T) bool {
 	xLen := len(x)
 	yLen := len(y)
 	visited := make([]bool, yLen)
@@ -107,9 +107,9 @@ func elementsMatchByLoop(x, y []string) bool {
 	}
 	return true
 }
-func elementsMatchByMap(x, y []string) bool {
+func elementsMatchByMap[T comparable](x, y []T) bool {
 	// create a map of string -> int
-	diff := make(map[string]int, len(x))
+	diff := make(map[T]int, len(x))
 	for _, _x := range x {
 		// 0 value for int is 0, so just increment a counter for the string
 		diff[_x]++
