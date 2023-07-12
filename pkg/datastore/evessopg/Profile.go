@@ -3,14 +3,15 @@ package evessopg
 import (
 	"context"
 	"fmt"
+	"github.com/goccy/go-json"
+	"github.com/gofrs/uuid"
+
 	"reflect"
 	"sort"
 	"sync"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/goccy/go-json"
-	"github.com/gofrs/uuid"
 	"github.com/jackc/pgtype"
 	"github.com/lestrrat-go/jwx/jwt"
 	"golang.org/x/oauth2"
@@ -33,17 +34,12 @@ type Profile struct {
 }
 
 func (p *Profile) GetData() interface{} {
-	var out interface{}
-	err := p.Data.AssignTo(&out)
-	if err != nil {
-		return nil
-	}
-	return out
+	return p.Data.Get()
 }
 
 func (p *Profile) AllCharacters(ctx context.Context) ([]evesso.Character, error) {
 	var characters []*Character
-	var result []evesso.Character //nolint:prealloc
+	var result []evesso.Character
 	err := p.store.Query(ctx, sq.Select("*").From("evesso.characters").Where(sq.Eq{"profile_ref": p.GetID()}), &characters)
 	if err != nil {
 		return nil, err
@@ -73,7 +69,11 @@ func (p *Profile) GetID() uuid.UUID {
 	if err := p.ID.AssignTo(&uid); err != nil {
 		return uuid.Nil
 	}
-	return uuid.FromBytesOrNil(uid)
+	ret, err := uuid.FromBytes(uid)
+	if err != nil {
+		return uuid.Nil
+	}
+	return ret
 }
 
 func (p *Profile) GetName() string {
