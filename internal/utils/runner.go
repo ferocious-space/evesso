@@ -8,15 +8,23 @@ import (
 
 func OSExec(urlPath string) error {
 	var oserr error
+	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "linux":
-		oserr = exec.Command("xdg-open", urlPath).Start()
+		cmd = exec.Command("xdg-open", urlPath)
 	case "windows":
-		oserr = exec.Command("rundll32", "url.dll,FileProtocolHandler", urlPath).Start()
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", urlPath)
 	case "darwin":
-		oserr = exec.Command("open", urlPath).Start()
+		cmd = exec.Command("open", urlPath)
 	default:
-		oserr = fmt.Errorf("unsupported platform")
+		return fmt.Errorf("unsupported platform")
 	}
+	oserr = cmd.Start()
+	if oserr != nil {
+		return oserr
+	}
+	go func() {
+		_ = cmd.Wait()
+	}()
 	return oserr
 }

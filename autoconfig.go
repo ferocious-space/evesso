@@ -3,6 +3,7 @@ package evesso
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,11 +12,10 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/gofrs/uuid"
-	"github.com/labstack/echo/v4"
-	"github.com/lestrrat-go/jwx/jwk"
-	"github.com/lestrrat-go/jwx/jwt"
-	"github.com/pkg/errors"
+	"github.com/google/uuid"
+	"github.com/lestrrat-go/httprc/v3"
+	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v3/jwt"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/oauth2"
 
@@ -34,7 +34,7 @@ type EVESSO struct {
 	TokenEndpointAuthSigningAlgValuesSupported []string `json:"token_endpoint_auth_signing_alg_values_supported,omitempty"`
 	CodeChallengeMethodsSupported              []string `json:"code_challenge_methods_supported,omitempty"`
 
-	refresher *jwk.AutoRefresh
+	refresher *jwk.Cache
 	cfg       *appConfig
 	client    *http.Client
 
@@ -48,7 +48,6 @@ func AutoConfig(ctx context.Context, cfgpath string, store DataStore, client *ht
 	}
 	item := new(EVESSO)
 	item.client = client
-	item.refresher = jwk.NewAutoRefresh(ctx)
 	item.cfg = new(appConfig)
 	item.ctx = ctx
 	if err := item.cfg.Load(cfgpath); err != nil {
@@ -59,12 +58,16 @@ func AutoConfig(ctx context.Context, cfgpath string, store DataStore, client *ht
 		return nil, err
 	}
 	item.store = store
-	issuer, err := url.Parse(path.Join(CONST_ISSUER, CONST_AUTOCONFIG_URL))
+	issuer, err := url.Parse(path.Join(ISSUER, AUTOCONFIG_URL))
 	if err != nil {
 		return nil, err
 	}
 	issuer.Scheme = "https"
-	resp, err := client.Get(issuer.String())
+	withContext, err := http.NewRequestWithContext(ctx, http.MethodGet, issuer.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(withContext)
 	if err != nil {
 		return nil, err
 	}
@@ -73,21 +76,25 @@ func AutoConfig(ctx context.Context, cfgpath string, store DataStore, client *ht
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(data, &item); err != nil {
+	if err = json.Unmarshal(data, &item); err != nil {
 		return nil, err
 	}
-	item.refresher.Configure(
-		item.JwksURI,
+	item.refresher, err = jwk.NewCache(ctx, httprc.NewClient(httprc.WithHTTPClient(client)))
+	if err != nil {
+		return nil, err
+	}
+	if err = item.refresher.Register(
+		ctx, item.JwksURI,
 		jwk.WithHTTPClient(client),
-		jwk.WithRefreshInterval(5*time.Minute),
-	)
+		jwk.WithConstantInterval(5*time.Minute),
+	); err != nil {
+		return nil, err
+	}
 	return item, nil
 }
-
 func (r *EVESSO) AppConfig() *appConfig {
 	return r.cfg
 }
-
 func (r *EVESSO) oAuth2(scopes ...string) *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:     r.cfg.Key,
@@ -101,32 +108,39 @@ func (r *EVESSO) oAuth2(scopes ...string) *oauth2.Config {
 		Scopes:      scopes,
 	}
 }
-
 func (r *EVESSO) Store() DataStore {
 	return r.store
 }
 
+// verify checks an access token against the SSO JWKS. Character identity comes
+// from the token it returns, never from an unverified parse of the same string.
+func (r *EVESSO) verify(ctx context.Context, accessToken string) (jwt.Token, error) {
+	ks, err := r.refresher.Lookup(ctx, r.JwksURI)
+	if err != nil {
+		return nil, err
+	}
+	return validateAccessToken(ks, r.cfg.Key, accessToken)
+}
 func (r *EVESSO) TokenSource(profileID uuid.UUID, CharacterName string, Scopes ...string) (*ssoTokenSource, error) {
 	return &ssoTokenSource{
 		token:       nil,
 		ctx:         context.WithValue(r.ctx, oauth2.HTTPClient, r.client),
 		oauthConfig: r.oAuth2(Scopes...),
 		jwkfn: func() (jwk.Set, error) {
-			return r.refresher.Fetch(r.ctx, r.JwksURI)
+			return r.refresher.Lookup(r.ctx, r.JwksURI)
 		},
 		store:         r.store,
 		profileID:     profileID,
 		characterName: CharacterName,
 	}, nil
 }
-
 func (r *EVESSO) CharacterSource(character Character) (*ssoTokenSource, error) {
 	return &ssoTokenSource{
 		token:       nil,
 		ctx:         context.WithValue(r.ctx, oauth2.HTTPClient, r.client),
 		oauthConfig: r.oAuth2(character.GetScopes()...),
 		jwkfn: func() (jwk.Set, error) {
-			return r.refresher.Fetch(r.ctx, r.JwksURI)
+			return r.refresher.Lookup(r.ctx, r.JwksURI)
 		},
 		store:         r.store,
 		profileID:     character.GetProfileID(),
@@ -134,21 +148,24 @@ func (r *EVESSO) CharacterSource(character Character) (*ssoTokenSource, error) {
 		character:     character,
 	}, nil
 }
-
 func (r *EVESSO) AuthUrl(pkce PKCE) string {
 	return r.oAuth2(pkce.GetScopes()...).AuthCodeURL(
 		pkce.GetState().String(),
 		oauth2.AccessTypeOffline,
-		oauth2.SetAuthURLParam("code_challange", pkce.GetCodeChallange()),
-		oauth2.SetAuthURLParam("code_challange_method", pkce.GetCodeChallangeMethod()),
+		oauth2.SetAuthURLParam("code_challenge", pkce.GetCodeChallange()),
+		oauth2.SetAuthURLParam("code_challenge_method", pkce.GetCodeChallangeMethod()),
 	)
 }
-
 func (r *EVESSO) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	encoder := json.NewEncoder(w)
 	code := req.FormValue("code")
 	state := req.FormValue("state")
-	pkce, err := r.store.FindPKCE(req.Context(), uuid.FromStringOrNil(state))
+	stateID, err := uuid.Parse(state)
+	if err != nil {
+		//we have no state for this request, discard it
+		return
+	}
+	pkce, err := r.store.FindPKCE(req.Context(), stateID)
 	if err != nil {
 		//we have no state for this request, discard it
 		return
@@ -157,39 +174,48 @@ func (r *EVESSO) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		return
 	}
-	//delete the state as we are handling it at the moment
+	// delete the state as we are handling it at the moment
 	err = pkce.Destroy(req.Context())
 	if err != nil {
 		return
 	}
-	//check if more than 5 mins passed
+	// check if more than 5 mins passed
 	if time.Since(pkce.Time()) > 5*time.Minute {
 		_ = encoder.Encode("authentication timeout, please try again")
 		return
 	}
 
-	//get the token
+	// get the token
 	token, err := r.oAuth2().Exchange(
 		r.ctx,
 		code,
 		oauth2.SetAuthURLParam("code_verifier", pkce.GetCodeVerifier()),
 	)
 	if err != nil {
-		//token exchange failed ?
+		// token exchange failed ?
 		_ = encoder.Encode(err)
 		return
 	}
-	//extract character
-	_, err = profile.CreateCharacter(req.Context(), token, pkce.GetReferenceData())
+	// extract character from the verified token
+	jt, err := r.verify(req.Context(), token.AccessToken)
 	if err != nil {
 		_ = encoder.Encode(err)
-		//token parse failed ?
 		return
 	}
-	_ = r.store.CleanPKCE(context.TODO())
+	claims, err := newCharacterClaims(jt)
+	if err != nil {
+		_ = encoder.Encode(err)
+		return
+	}
+	_, err = profile.CreateCharacter(req.Context(), claims, token, pkce.GetReferenceData())
+	if err != nil {
+		_ = encoder.Encode(err)
+		return
+	}
+	_ = r.store.CleanPKCE(req.Context())
+	//https://login.eveonline.com/Account/LogOff?ReturnUrl=https%3A%2F%2Fwww.fuzzwork.co.uk%2Fauth/login.php
 	http.Redirect(w, req, r.AppConfig().Redirect, http.StatusFound)
 }
-
 func (r *EVESSO) LocalhostAuth(urlPath string) error {
 	if err := utils.OSExec(urlPath); err != nil {
 		return err
@@ -202,50 +228,42 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 	stopChannel := make(chan struct{}, 1)
 	errChannel := make(chan error, 1)
 
-	e := echo.New()
-	e.HideBanner = true
-	e.GET(
-		callback.Path, func(c echo.Context) error {
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		callback.Path, func(w http.ResponseWriter, req *http.Request) {
 			defer func() {
 				stopChannel <- struct{}{}
 			}()
+			ctx := logr.NewContext(req.Context(), logr.FromContextOrDiscard(r.ctx))
 
-			ctx := logr.NewContext(c.Request().Context(), logr.FromContextOrDiscard(r.ctx))
-
-			code := c.Request().FormValue("code")
-			state := c.Request().FormValue("state")
-			pkce, err := r.store.FindPKCE(ctx, uuid.FromStringOrNil(state))
+			code := req.FormValue("code")
+			state := req.FormValue("state")
+			stateID, err := uuid.Parse(state)
 			if err != nil {
-				//we have no state for this request, discard it
-				return &echo.HTTPError{
-					Code:     http.StatusInternalServerError,
-					Message:  err.Error(),
-					Internal: err,
-				}
+				// we have no state for this request, discard it
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			pkce, err := r.store.FindPKCE(ctx, stateID)
+			if err != nil {
+				// we have no state for this request, discard it
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 			profile, err := pkce.GetProfile(ctx)
 			if err != nil {
-				return &echo.HTTPError{
-					Code:     http.StatusInternalServerError,
-					Message:  err.Error(),
-					Internal: err,
-				}
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 			err = pkce.Destroy(ctx)
 			if err != nil {
-				return &echo.HTTPError{
-					Code:     http.StatusInternalServerError,
-					Message:  err.Error(),
-					Internal: err,
-				}
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
-			//check if more than 5 mins passed
+			// check if more than 5 mins passed
 			if time.Since(pkce.Time()) > 5*time.Minute {
-				return &echo.HTTPError{
-					Code:     http.StatusInternalServerError,
-					Message:  "timeout ",
-					Internal: err,
-				}
+				http.Error(w, "timeout ", http.StatusInternalServerError)
+				return
 			}
 
 			token, err := r.oAuth2().Exchange(
@@ -253,66 +271,73 @@ func (r *EVESSO) LocalhostAuth(urlPath string) error {
 				code,
 				oauth2.SetAuthURLParam("code_verifier", pkce.GetCodeVerifier()),
 			)
-
 			if err != nil {
-				return &echo.HTTPError{
-					Code:     http.StatusInternalServerError,
-					Message:  err.Error(),
-					Internal: err,
-				}
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
-			_, err = profile.CreateCharacter(ctx, token, pkce.GetReferenceData())
+			jt, err := r.verify(ctx, token.AccessToken)
 			if err != nil {
-				return &echo.HTTPError{
-					Code:     http.StatusInternalServerError,
-					Message:  err.Error(),
-					Internal: err,
-				}
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			claims, err := newCharacterClaims(jt)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			_, err = profile.CreateCharacter(ctx, claims, token, pkce.GetReferenceData())
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 			_ = r.store.CleanPKCE(ctx)
-			parse, err := jwt.Parse([]byte(token.AccessToken))
-			if err != nil {
-				return err
-			}
-			return c.JSON(http.StatusOK, parse)
+			_ = json.NewEncoder(w).Encode(jt)
 		},
 	)
 
+	srv := &http.Server{Handler: mux}
+
+	if callback.Port() == "" && callback.Scheme != "http" && r.AppConfig().Autocert {
+		manager := &autocert.Manager{
+			Prompt:     autocert.AcceptTOS,
+			HostPolicy: autocert.HostWhitelist(callback.Hostname()),
+			Cache:      autocert.DirCache(r.AppConfig().AutocertCache),
+		}
+		srv.TLSConfig = manager.TLSConfig()
+	}
+
 	go func() {
-		if callback.Port() == "" {
-			if callback.Scheme == "http" {
-				err = e.Start(":80")
+		var serveErr error
+		switch {
+		case callback.Port() == "" && callback.Scheme == "http":
+			srv.Addr = ":80"
+			serveErr = srv.ListenAndServe()
+		case callback.Port() == "":
+			srv.Addr = ":443"
+			if r.AppConfig().Autocert {
+				serveErr = srv.ListenAndServeTLS("", "")
 			} else {
-				if r.AppConfig().Autocert {
-					e.AutoTLSManager.HostPolicy = autocert.HostWhitelist(callback.Hostname())
-					e.AutoTLSManager.Cache = autocert.DirCache(r.AppConfig().AutocertCache)
-					err = e.StartAutoTLS(":443")
-				} else {
-					err = e.StartTLS(":443", r.AppConfig().TLSCert, r.AppConfig().TLSKey)
-				}
-
+				serveErr = srv.ListenAndServeTLS(r.AppConfig().TLSCert, r.AppConfig().TLSKey)
 			}
-		} else {
-			err = e.Start(fmt.Sprintf(":%s", callback.Port()))
+		default:
+			srv.Addr = fmt.Sprintf(":%s", callback.Port())
+			serveErr = srv.ListenAndServe()
 		}
-
-		if errors.Is(err, http.ErrServerClosed) {
-			err = nil
+		if errors.Is(serveErr, http.ErrServerClosed) {
+			serveErr = nil
 		}
-		errChannel <- err
+		errChannel <- serveErr
 	}()
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Minute)
 	defer cancel()
 
 	select {
-	case err := <-errChannel:
-		return err
+	case serveErr := <-errChannel:
+		return serveErr
 	case <-stopChannel:
-		err = e.Shutdown(ctx)
+		return srv.Shutdown(ctx)
 	case <-ctx.Done():
-		err = e.Shutdown(ctx)
+		return srv.Shutdown(ctx)
 	}
-
-	return err
 }

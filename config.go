@@ -1,37 +1,37 @@
 package evesso
 
 import (
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
 
 	"github.com/goccy/go-json"
-	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
 )
 
 type appConfig struct {
-	//ESI API Key
-	Key string `json:"key"`
-	//ESI API Secret
-	Secret string `json:"secret"`
-	//Callback
-	Callback string `json:"callback"`
-	//Redirect to URL after successful completion of authentication
-	Redirect string `json:"redirect"`
-	//DSN database connection string
+	// ESI API Key
+	Key string `json:"key" yaml:"key"`
+	// ESI API Secret
+	Secret string `json:"secret" yaml:"secret"`
+	// Callback
+	Callback string `json:"callback" yaml:"callback"`
+	// Redirect to URL after successful completion of authentication
+	Redirect string `json:"redirect" yaml:"redirect"`
+	// DSN database connection string
 	DSN string `json:"dsn" yaml:"dsn"`
-	//Autocert enable/disable letsencrypt
-	Autocert bool `json:"autocert"`
-	//AutocertCache location to save certs if letsencrypt is enabled
-	AutocertCache string `json:"autocertcache"`
-	//TLSCert path to pem Cert file to use for https if letsencrypt is disabled
-	TLSCert string `json:"tlscert"`
-	//TLSKey path to pem Key file to use for https if letsencrypt is disabled
-	TLSKey string `json:"tlskey"`
+	// Autocert enable/disable letsencrypt
+	Autocert bool `json:"autocert" yaml:"autocert"`
+	// AutocertCache location to save certs if letsencrypt is enabled
+	AutocertCache string `json:"autocertcache" yaml:"autocertcache"`
+	// TLSCert path to pem Cert file to use for https if letsencrypt is disabled
+	TLSCert string `json:"tlscert" yaml:"tlscert"`
+	// TLSKey path to pem Key file to use for https if letsencrypt is disabled
+	TLSKey string `json:"tlskey" yaml:"tlskey"`
 }
 
-func (c appConfig) CallbackURL() *url.URL {
+func (c *appConfig) CallbackURL() *url.URL {
 	parse, err := url.Parse(c.Callback)
 	if err != nil {
 		return nil

@@ -3,6 +3,7 @@ package evessopg
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"reflect"
@@ -10,19 +11,17 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/georgysavva/scany/pgxscan"
+	"github.com/georgysavva/scany/v2/pgxscan"
 	"github.com/go-logr/logr"
-	"github.com/gofrs/uuid"
+	"github.com/goccy/go-json"
 	"github.com/golang-migrate/migrate/v4"
-	pgxm "github.com/golang-migrate/migrate/v4/database/pgx"
+	pgxm "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	"github.com/jackc/pgx/v4"
-	"github.com/jackc/pgx/v4/log/logrusadapter"
-	"github.com/jackc/pgx/v4/pgxpool"
-	"github.com/jackc/pgx/v4/stdlib"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/lann/builder"
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 
 	"github.com/ferocious-space/evesso"
 )
@@ -45,7 +44,10 @@ func (x *PGStore) Setup(ctx context.Context, dsn string) error {
 	if err != nil {
 		return err
 	}
-	*x = *ds
+	x.schema = ds.schema
+	x.pool = ds.pool
+	x.lock = ds.lock
+	x.migrations = ds.migrations
 	return nil
 }
 
@@ -55,37 +57,40 @@ func (x *PGStore) Query(ctx context.Context, queryer sq.Sqlizer, output interfac
 	if err != nil {
 		return err
 	}
-	logr.FromContextOrDiscard(ctx).Info(rsql, "args", args)
-	return x.Connection(ctx, func(ctx context.Context, tx *pgxpool.Conn) error {
-		typ := reflect.TypeOf(output)
-		switch typ {
-		case nil:
-			switch queryer.(type) {
-			case sq.SelectBuilder:
-				return errors.Errorf("output cannot be nil")
-			case sq.InsertBuilder, sq.DeleteBuilder, sq.UpdateBuilder:
-				_, err := tx.Exec(ctx, rsql, args...)
+	typ := reflect.TypeOf(output)
+	switch typ {
+	case nil:
+		switch queryer.(type) {
+		case sq.SelectBuilder:
+			return fmt.Errorf("output cannot be nil")
+		case sq.InsertBuilder, sq.DeleteBuilder, sq.UpdateBuilder:
+			return x.Transaction(ctx, func(ctx context.Context, tx pgx.Tx) error {
+				_, err = tx.Exec(ctx, rsql, args...)
 				if err != nil {
 					return err
 				}
 				return nil
+			})
+		default:
+			return errors.New("unknown query")
+		}
+	default:
+		switch typ.Kind() {
+		case reflect.Ptr:
+			switch typ.Elem().Kind() {
+			case reflect.Slice, reflect.Array:
+				return x.Connection(ctx, func(ctx context.Context, tx *pgxpool.Conn) error {
+					return pgxscan.Select(ctx, tx, output, rsql, args...)
+				})
 			default:
-				return errors.New("unknown query")
+				return x.Connection(ctx, func(ctx context.Context, tx *pgxpool.Conn) error {
+					return pgxscan.Get(ctx, tx, output, rsql, args...)
+				})
 			}
 		default:
-			switch typ.Kind() {
-			case reflect.Ptr:
-				switch typ.Elem().Kind() {
-				case reflect.Slice, reflect.Array:
-					return pgxscan.Select(ctx, tx, output, rsql, args...)
-				default:
-					return pgxscan.Get(ctx, tx, output, rsql, args...)
-				}
-			default:
-				return errors.Errorf("must be pointer not %T", output)
-			}
+			return fmt.Errorf("must be pointer not %T", output)
 		}
-	})
+	}
 }
 
 func (x *PGStore) Connection(ctx context.Context, f func(ctx context.Context, tx *pgxpool.Conn) error) error {
@@ -98,8 +103,8 @@ func (x *PGStore) Connection(ctx context.Context, f func(ctx context.Context, tx
 }
 
 func (x *PGStore) Transaction(ctx context.Context, f func(ctx context.Context, tx pgx.Tx) error) error {
-	return x.pool.BeginTxFunc(
-		ctx, pgx.TxOptions{
+	return pgx.BeginTxFunc(
+		ctx, x.pool, pgx.TxOptions{
 			IsoLevel:   pgx.RepeatableRead,
 			AccessMode: pgx.ReadWrite,
 		}, func(tx pgx.Tx) error {
@@ -213,12 +218,10 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 
 	data := new(PGStore)
 	config, err := pgxpool.ParseConfig(dsn)
-	config.ConnConfig.LogLevel = pgx.LogLevelTrace
-	config.ConnConfig.Logger = logrusadapter.NewLogger(logrus.New())
 	if err != nil {
 		return nil, err
 	}
-	data.pool, err = pgxpool.ConnectConfig(ctx, config)
+	data.pool, err = pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, err
 	}
@@ -253,19 +256,23 @@ func NewPGStore(ctx context.Context, dsn string) (*PGStore, error) {
 func (x *PGStore) NewProfile(ctx context.Context, profileName string, data interface{}) (evesso.Profile, error) {
 	profile := new(Profile)
 	profile.store = x
-	if err := profile.ProfileName.Set(profileName); err != nil {
-		return nil, err
+	profile.ProfileName = profileName
+	if data != nil {
+		marshalled, err := json.Marshal(data)
+		if err != nil {
+			return nil, err
+		}
+		profile.Data = marshalled
 	}
-	if err := profile.Data.Set(data); err != nil {
-		return nil, err
-	}
-	if err := profile.CreatedAt.Set(time.Now()); err != nil {
-		return nil, err
-	}
-	if err := profile.UpdatedAt.Set(time.Now()); err != nil {
-		return nil, err
-	}
-	err := x.Query(ctx, InsertGenerate("evesso.profiles", profile).Suffix("RETURNING id"), profile)
+	now := time.Now()
+	profile.CreatedAt = now
+	profile.UpdatedAt = now
+	err := x.Query(ctx,
+		sq.Insert("evesso.profiles").
+			Columns("profile_name", "data", "created_at", "updated_at").
+			Values(profile.ProfileName, profile.Data, profile.CreatedAt, profile.UpdatedAt).
+			Suffix("RETURNING id"),
+		profile)
 	if err != nil {
 		return nil, err
 	}

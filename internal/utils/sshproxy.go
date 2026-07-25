@@ -3,12 +3,14 @@ package utils
 import (
 	"context"
 	"encoding/pem"
+	"errors"
 	"net"
 	"os"
+	"path/filepath"
 	"time"
 
-	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 	"golang.org/x/net/proxy"
 )
 
@@ -26,7 +28,7 @@ func (x *sshDialer) DialContext(ctx context.Context, network string, address str
 	return dialContext(ctx, x.ssh, network, address)
 }
 
-func (x *sshDialer) DialContextMYSQL(ctx context.Context, address string) (net.Conn, error) {
+func (x *sshDialer) DialContextDatabase(ctx context.Context, address string) (net.Conn, error) {
 	return dialContext(ctx, x.ssh, "tcp", address)
 }
 
@@ -66,12 +68,16 @@ func SSHDialer(network, address, user, key, keyPassword string) (*sshDialer, err
 	if err != nil {
 		return nil, err
 	}
+	hostKeys, err := defaultKnownHosts()
+	if err != nil {
+		return nil, err
+	}
 	cfg := &ssh.ClientConfig{
 		User: user,
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(fromPem),
 		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: hostKeys,
 	}
 	dial, err := ssh.Dial(network, address, cfg)
 	if err != nil {
@@ -82,21 +88,28 @@ func SSHDialer(network, address, user, key, keyPassword string) (*sshDialer, err
 	}, err
 }
 
-func signerFromPem(pemBytes []byte, password []byte) (ssh.Signer, error) {
-	// read pem block
-	err := errors.New("Pem decode failed, no key found")
-	pemBlock, _ := pem.Decode(pemBytes)
-	if pemBlock == nil {
+// defaultKnownHosts builds a host key callback from the user's known_hosts file.
+// A host that is absent from it, or whose key has changed, fails the dial.
+func defaultKnownHosts() (ssh.HostKeyCallback, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
 		return nil, err
 	}
-	signer, err := ssh.ParsePrivateKey(pemBytes)
-	if err != nil {
-		if err.Error() == (&ssh.PassphraseMissingError{}).Error() {
-			signer, err = ssh.ParsePrivateKeyWithPassphrase(pemBytes, password)
-			if err != nil {
-				return nil, err
-			}
-		}
+	return knownhosts.New(filepath.Join(home, ".ssh", "known_hosts"))
+}
+
+func signerFromPem(pemBytes []byte, password []byte) (ssh.Signer, error) {
+	if pemBlock, _ := pem.Decode(pemBytes); pemBlock == nil {
+		return nil, errors.New("pem decode failed, no key found")
 	}
-	return signer, nil
+	signer, err := ssh.ParsePrivateKey(pemBytes)
+	if err == nil {
+		return signer, nil
+	}
+	// Only a missing passphrase is retryable; anything else is a real parse failure.
+	var passphraseMissing *ssh.PassphraseMissingError
+	if !errors.As(err, &passphraseMissing) {
+		return nil, err
+	}
+	return ssh.ParsePrivateKeyWithPassphrase(pemBytes, password)
 }

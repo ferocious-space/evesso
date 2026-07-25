@@ -38,7 +38,7 @@ func main() {
 		return
 	}
 	if !source.Valid() {
-		au, err := source.AuthUrl(236432573567548)
+		au, err := source.AuthURL(236432573567548)
 		if err != nil {
 			log.Fatalln(err)
 			return

@@ -2,11 +2,35 @@ package evesso
 
 import (
 	"context"
+	"errors"
 	"time"
 
-	"github.com/gofrs/uuid"
+	"github.com/google/uuid"
 	"golang.org/x/oauth2"
 )
+
+var (
+	ErrTokenScope = errors.New("scope is missing")
+	ErrTokenName  = errors.New("name is missing")
+	ErrTokenOwner = errors.New("owner is missing")
+	ErrTokenID    = errors.New("id is missing")
+)
+
+// CharacterClaims is the identity a character record is created from. Its fields
+// are unexported and the only constructor is newCharacterClaims, which takes a
+// jwt.Token that validateAccessToken has already checked against the SSO JWKS.
+// A DataStore therefore cannot be handed an identity nobody verified.
+type CharacterClaims struct {
+	characterID   int32
+	characterName string
+	owner         string
+	scopes        []string
+}
+
+func (c CharacterClaims) CharacterID() int32    { return c.characterID }
+func (c CharacterClaims) CharacterName() string { return c.characterName }
+func (c CharacterClaims) Owner() string         { return c.owner }
+func (c CharacterClaims) Scopes() []string      { return c.scopes }
 
 type DataStore interface {
 	Setup(ctx context.Context, dsn string) error
@@ -27,13 +51,19 @@ type DataStore interface {
 type Profile interface {
 	GetID() uuid.UUID
 	GetName() string
-	GetData() interface{}
+	GetData() any
+
+	// Rename changes the profile name. Names are unique, so renaming onto one
+	// that is already taken fails.
+	Rename(ctx context.Context, name string) error
 
 	AllCharacters(ctx context.Context) ([]Character, error)
 	GetCharacter(ctx context.Context, uuid uuid.UUID) (Character, error)
 	FindCharacter(ctx context.Context, characterID int32, characterName string, Owner string, Scopes []string) (Character, error)
 
-	CreateCharacter(ctx context.Context, token *oauth2.Token, referenceData interface{}) (Character, error)
+	// CreateCharacter persists claims that the caller has already verified. It
+	// must not re-derive identity from token.AccessToken.
+	CreateCharacter(ctx context.Context, claims CharacterClaims, token *oauth2.Token, referenceData interface{}) (Character, error)
 	CreatePKCE(ctx context.Context, referenceData interface{}, scopes ...string) (PKCE, error)
 	Delete(ctx context.Context) error
 }
@@ -84,6 +114,7 @@ func MatchScopes[T comparable](x, y []T) bool {
 		return elementsMatchByLoop(x, y)
 	}
 }
+
 func elementsMatchByLoop[T comparable](x, y []T) bool {
 	xLen := len(x)
 	yLen := len(y)

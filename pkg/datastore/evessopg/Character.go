@@ -6,9 +6,9 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/gofrs/uuid"
-	"github.com/jackc/pgtype"
-	"github.com/lestrrat-go/jwx/jwt"
+	"github.com/goccy/go-json"
+	"github.com/google/uuid"
+	"github.com/lestrrat-go/jwx/v3/jwt"
 	"golang.org/x/oauth2"
 
 	"github.com/ferocious-space/evesso"
@@ -18,51 +18,55 @@ type Character struct {
 	sync.Mutex `db:"-"`
 	store      *PGStore `db:"-"`
 
-	ID pgtype.UUID `json:"id" db:"id"`
+	ID uuid.UUID `json:"id" db:"id"`
 
-	ProfileReference pgtype.UUID `json:"profile_ref" db:"profile_ref"`
+	ProfileReference uuid.UUID `json:"profile_ref" db:"profile_ref"`
 
-	//ESI CharacterID
-	CharacterID pgtype.Int4 `json:"character_id" db:"character_id"`
+	// ESI CharacterID
+	CharacterID int32 `json:"character_id" db:"character_id"`
 
-	//ESI CharacterName
-	CharacterName pgtype.Text `json:"name" db:"character_name"`
+	// ESI CharacterName
+	CharacterName string `json:"name" db:"character_name"`
 
-	//ESI CharacterOwner
-	Owner pgtype.Text `json:"owner" db:"owner"`
+	// ESI CharacterOwner
+	Owner string `json:"owner" db:"owner"`
 
-	//Last issued oauth2 AccessToken
-	AccessToken pgtype.Text `json:"access_token" db:"access_token"`
+	// Last issued oauth2 AccessToken
+	AccessToken string `json:"access_token" db:"access_token"`
 
-	//RefreshToken is oauth2 refresh token
-	RefreshToken pgtype.Text `json:"refresh_token" db:"refresh_token"`
+	// RefreshToken is oauth2 refresh token
+	RefreshToken string `json:"refresh_token" db:"refresh_token"`
 
-	//Scopes is the scopes the refresh token was issued with
-	Scopes pgtype.TextArray `json:"scopes" db:"scopes"`
+	// Scopes is the scopes the refresh token was issued with
+	Scopes []string `json:"scopes" db:"scopes"`
 
-	//ReferenceData is custom data passed during authentication
-	ReferenceData pgtype.JSONB `json:"reference_data" db:"reference_data"`
+	// ReferenceData is custom data passed during authentication
+	ReferenceData []byte `json:"reference_data" db:"reference_data"`
 
-	Active pgtype.Bool `json:"active" db:"active"`
+	Active bool `json:"active" db:"active"`
 
-	CreatedAt pgtype.Timestamptz `json:"created_at" db:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at" db:"updated_at"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
 
 func (c *Character) GetReferenceData() interface{} {
-	return c.ReferenceData.Get()
+	if len(c.ReferenceData) == 0 {
+		return nil
+	}
+	var out interface{}
+	if err := json.Unmarshal(c.ReferenceData, &out); err != nil {
+		return nil
+	}
+	return out
 }
 
-func (c *Character) UpdateAccessToken(ctx context.Context, AccessToken string) error {
+func (c *Character) UpdateAccessToken(ctx context.Context, accessToken string) error {
 	c.Lock()
 	defer c.Unlock()
-	c.store.GLock(c.CharacterID.Get())
-	defer c.store.GUnlock(c.CharacterID.Get())
-	err := c.AccessToken.Set(AccessToken)
-	if err != nil {
-		return err
-	}
-	err = c.store.Query(ctx, sq.Update("evesso.characters").
+	// c.store.GLock(c.CharacterID.Get())
+	//defer c.store.GUnlock(c.CharacterID.Get())
+	c.AccessToken = accessToken
+	err := c.store.Query(ctx, sq.Update("evesso.characters").
 		Set("access_token", c.AccessToken).
 		Set("updated_at", time.Now()).
 		Where(sq.Eq{"id": c.ID}), nil)
@@ -73,67 +77,42 @@ func (c *Character) UpdateAccessToken(ctx context.Context, AccessToken string) e
 }
 
 func (c *Character) GetID() uuid.UUID {
-	cid := []byte{}
-	err := c.ID.AssignTo(&cid)
-	if err != nil {
-		return uuid.Nil
-	}
-	return uuid.FromBytesOrNil(cid)
+	return c.ID
 }
 
 func (c *Character) GetCharacterName() string {
-	name := ""
-	_ = c.CharacterName.AssignTo(&name)
-	return name
+	return c.CharacterName
 }
 
 func (c *Character) GetCharacterID() int32 {
-	id := int32(0)
-	_ = c.CharacterID.AssignTo(&id)
-	return id
+	return c.CharacterID
 }
 
 func (c *Character) GetOwner() string {
-	owner := ""
-	_ = c.Owner.AssignTo(&owner)
-	return owner
+	return c.Owner
 }
 
 func (c *Character) IsActive() bool {
-	active := false
-	_ = c.Active.AssignTo(&active)
-	return active
+	return c.Active
 }
 
 func (c *Character) GetProfileID() uuid.UUID {
-	cid := []byte{}
-	err := c.ProfileReference.AssignTo(&cid)
-	if err != nil {
-		return uuid.Nil
-	}
-	return uuid.FromBytesOrNil(cid)
+	return c.ProfileReference
 }
 
 func (c *Character) GetScopes() []string {
-	out := make([]string, 0)
-	_ = c.Scopes.AssignTo(&out)
-	return out
+	return c.Scopes
 }
 
 func (c *Character) GetProfile(ctx context.Context) (evesso.Profile, error) {
 	return c.store.GetProfile(ctx, c.GetProfileID())
 }
 
-func (c *Character) UpdateRefreshToken(ctx context.Context, RefreshToken string) error {
+func (c *Character) UpdateRefreshToken(ctx context.Context, refreshToken string) error {
 	c.Lock()
 	defer c.Unlock()
-	c.store.GLock(c.CharacterID.Get())
-	defer c.store.GUnlock(c.CharacterID.Get())
-	err := c.RefreshToken.Set(RefreshToken)
-	if err != nil {
-		return err
-	}
-	err = c.store.Query(ctx, sq.Update("evesso.characters").
+	c.RefreshToken = refreshToken
+	err := c.store.Query(ctx, sq.Update("evesso.characters").
 		Set("refresh_token", c.RefreshToken).
 		Set("updated_at", time.Now()).
 		Where(sq.Eq{"id": c.ID}), nil)
@@ -146,23 +125,11 @@ func (c *Character) UpdateRefreshToken(ctx context.Context, RefreshToken string)
 func (c *Character) UpdateActiveState(ctx context.Context, active bool) error {
 	c.Lock()
 	defer c.Unlock()
-	c.store.GLock(c.CharacterID.Get())
-	defer c.store.GUnlock(c.CharacterID.Get())
-	old := false
-	err := c.Active.AssignTo(&old)
+	old := c.Active
+	c.Active = active
+	err := c.store.Query(ctx, sq.Update("evesso.characters").Set("active", c.Active).Set("updated_at", time.Now()).Where(sq.Eq{"id": c.ID}), nil)
 	if err != nil {
-		return err
-	}
-	err = c.Active.Set(active)
-	if err != nil {
-		return err
-	}
-	err = c.store.Query(ctx, sq.Update("evesso.characters").Set("active", c.Active).Set("updated_at", time.Now()).Where(sq.Eq{"id": c.ID}), nil)
-	if err != nil {
-		err := c.Active.Set(old)
-		if err != nil {
-			return err
-		}
+		c.Active = old
 		return err
 	}
 	return nil
@@ -171,9 +138,7 @@ func (c *Character) UpdateActiveState(ctx context.Context, active bool) error {
 func (c *Character) Token() (*oauth2.Token, error) {
 	c.Lock()
 	defer c.Unlock()
-	c.store.GLock(c.CharacterID.Get())
-	defer c.store.GUnlock(c.CharacterID.Get())
-	timeout, cancelFunc := context.WithTimeout(context.TODO(), 1*time.Minute)
+	timeout, cancelFunc := context.WithTimeout(context.TODO(), time.Minute)
 	defer cancelFunc()
 	err := c.store.Query(timeout,
 		sq.Select("access_token", "refresh_token").
@@ -183,19 +148,21 @@ func (c *Character) Token() (*oauth2.Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	refreshToken := ""
-	if err := c.RefreshToken.AssignTo(&refreshToken); err != nil {
-		return nil, err
-	}
+	refreshToken := c.RefreshToken
 	expiration := time.Now().UTC()
-	accessToken := ""
-	_ = c.AccessToken.AssignTo(&accessToken)
+	accessToken := c.AccessToken
 	if len(accessToken) > 1 {
-		parseString, err := jwt.ParseString(accessToken)
-		if err != nil {
+		// ParseInsecure is deliberate here: this reads back a token this process
+		// wrote, and the expiry only decides whether oauth2 refreshes now or in a
+		// moment. Nothing is trusted on the strength of it — identity comes from
+		// evesso.CharacterClaims, and ssoTokenSource.validate verifies any token
+		// that is actually used. A JWKS lookup on every DB read would buy nothing.
+		parseString, parseErr := jwt.ParseInsecure([]byte(accessToken))
+		if parseErr != nil {
 			accessToken = ""
+		} else if exp, ok := parseString.Expiration(); ok {
+			expiration = exp
 		}
-		expiration = parseString.Expiration()
 	}
 	return &oauth2.Token{AccessToken: accessToken, RefreshToken: refreshToken, Expiry: expiration}, nil
 }
